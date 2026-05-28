@@ -16,79 +16,36 @@ st.set_page_config(
 st.config.set_option("theme.backgroundColor", "#f8fafc")
 st.config.set_option("theme.secondaryBackgroundColor", "#ffffff")
 st.config.set_option("theme.textColor", "#0f172a")
-st.config.set_option("theme.primaryColor", "#eab308")  # Corporate Gold/Yellow accent
+st.config.set_option("theme.primaryColor", "#eab308")
 
-# Custom Typography & Yellow Header Styling
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;600;700&display=swap');
-    
     html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         font-family: 'Inter', sans-serif;
     }
-    
-    /* Executive Titles */
-    .main-title {
-        font-size: 26px;
-        font-weight: 700;
-        color: #0f172a !important;
-        margin-bottom: 2px;
-    }
-    .subtitle {
-        font-size: 13px;
-        color: #475569 !important;
-        margin-bottom: 20px;
-    }
-    
-    /* Top Summary Cards Styling */
-    .metric-box {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 15px 20px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-    }
-    .metric-label {
-        font-size: 11px;
-        font-weight: 600;
-        color: #475569 !important;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .metric-number {
-        font-size: 24px;
-        font-weight: 700;
-        color: #0f172a !important;
-        margin-top: 2px;
-    }
-    .section-header {
-        font-size: 16px;
-        font-weight: 600;
-        color: #0f172a !important;
-        margin-bottom: 12px;
-    }
-
-    /* Target st.dataframe headers to inject Yellow Branding Layout */
-    div[data-testid="stTable"] th, 
-    div[data-testid="styledDataFrame"] th,
-    .stDataFrame th {
-        background-color: #fef08a !important;  /* Classic yellow background */
-        color: #1e293b !important;             /* High contrast corporate dark text */
+    .main-title { font-size: 26px; font-weight: 700; color: #0f172a !important; margin-bottom: 2px; }
+    .subtitle { font-size: 13px; color: #475569 !important; margin-bottom: 20px; }
+    .metric-box { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .metric-label { font-size: 11px; font-weight: 600; color: #475569 !important; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-number { font-size: 24px; font-weight: 700; color: #0f172a !important; margin-top: 2px; }
+    .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
+    div[data-testid="stTable"] th, div[data-testid="styledDataFrame"] th, .stDataFrame th {
+        background-color: #fef08a !important;
+        color: #1e293b !important;
         font-weight: 600 !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. FAST SPREADSHEET INGEST ENGINE ---
+# --- 3. ROBUST SPREADSHEET INGEST ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_leads_only():
     SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     
-    # FIX: Pull directly from the Streamlit Secrets environment instead of a local file
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    
     client = gspread.authorize(creds)
     ss = client.open_by_key(SHEET_ID)
     
@@ -96,9 +53,23 @@ def fetch_leads_only():
     df = pd.DataFrame(raw_data)
     df.columns = df.columns.str.strip()
     
+    # Robust multi-format parsing for Date column
     df['Parsed_Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df['Parsed_Month'] = pd.to_datetime(df['Month'], errors='coerce')
+    # Fallback for alternative dd/mm/yyyy string structures if default fails
+    missing_dates = df['Parsed_Date'].isna()
+    if missing_dates.any():
+        df.loc[missing_dates, 'Parsed_Date'] = pd.to_datetime(df.loc[missing_dates, 'Date'], dayfirst=True, errors='coerce')
     
+    # Robust parsing for Month column
+    df['Parsed_Month'] = pd.to_datetime(df['Month'], errors='coerce')
+    missing_months = df['Parsed_Month'].isna()
+    if missing_months.any():
+        df.loc[missing_months, 'Parsed_Month'] = pd.to_datetime(df.loc[missing_months, 'Month'], dayfirst=True, errors='coerce')
+        
+    # Drop rows where we absolutely cannot figure out the timestamp block
+    df = df.dropna(subset=['Parsed_Date']).copy()
+    
+    # Format displays cleanly
     df['Day_Display'] = df['Parsed_Date'].dt.strftime('%Y-%m-%d')
     df['Month_Display'] = df['Parsed_Month'].dt.strftime('%b %Y')
     
@@ -120,7 +91,6 @@ def fetch_leads_only():
         
     return df
 
-# Initialize Data Node
 try:
     df_leads = fetch_leads_only()
     is_ready = True
@@ -143,20 +113,17 @@ if is_ready:
         )
         selected_month = st.selectbox("Timeline Block", ["All Months"] + valid_months)
 
-    # Apply Filtering Cut
     if selected_month != "All Months":
-        df_filtered = df_leads[df_leads['Month_Display'] == selected_month]
+        df_filtered = df_leads[df_leads['Month_Display'] == selected_month].copy()
     else:
-        df_filtered = df_leads
+        df_filtered = df_leads.copy()
 
-    # High-level Metrics Data Calculation
     quality_counts = df_filtered['Cleaned_Quality_Status'].value_counts().to_dict()
     total_leads_in_window = len(df_filtered)
     approved_count = quality_counts.get('Approved', 0)
     rejected_count = quality_counts.get('Rejected', 0)
     pending_count = quality_counts.get('Pending', 0)
 
-    # Render High-Contrast Metrics Summary Cards
     card_total, card_app, card_rej, card_pen = st.columns(4)
     with card_total:
         st.markdown(f'<div class="metric-box"><div class="metric-label">Total Leads</div><div class="metric-number">{total_leads_in_window:,}</div></div>', unsafe_allow_html=True)
@@ -183,12 +150,10 @@ if is_ready:
                 Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
             ).reset_index()
             
-            # Combine absolute metrics and inline percentages safely
             leaderboard = pd.DataFrame()
             leaderboard['Agent'] = raw_leaderboard['Agent']
             leaderboard['Total_Leads'] = raw_leaderboard['Total_Leads']
             
-            # Formatted Columns with inline percentages
             leaderboard['Approved'] = raw_leaderboard.apply(
                 lambda r: f"{r['Approved']} ({(r['Approved']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
             )
@@ -203,7 +168,6 @@ if is_ready:
         else:
             leaderboard = pd.DataFrame(columns=["Agent", "Total_Leads", "Approved", "Rejected", "Pending"])
 
-        # Display Dataframe Matrix
         st.dataframe(
             leaderboard.reset_index(drop=True),
             column_config={
@@ -221,45 +185,37 @@ if is_ready:
     with col_charts:
         st.markdown('<div class="section-header">Allocation Quality Trend Lines</div>', unsafe_allow_html=True)
         
-        if selected_month != "All Months":
-            trend_df = df_filtered.groupby(['Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume')
-            trend_df = trend_df.sort_values('Day_Display')
+        if not df_filtered.empty:
+            if selected_month != "All Months":
+                # Ensure it tracks chronological daily order within the specific month
+                trend_df = df_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume')
+                trend_df = trend_df.sort_values('Parsed_Date')
+                x_axis_column = 'Day_Display'
+                x_label = 'Date'
+            else:
+                # Group by month timeline block cleanly
+                trend_df = df_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume')
+                trend_df = trend_df.sort_values('Parsed_Month')
+                x_axis_column = 'Month_Display'
+                x_label = 'Month Block'
             
             fig = px.line(
-                trend_df, x='Day_Display', y='Volume', color='Cleaned_Quality_Status',
-                labels={'Day_Display': 'Date', 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
+                trend_df, x=x_axis_column, y='Volume', color='Cleaned_Quality_Status',
+                labels={x_axis_column: x_label, 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
                 color_discrete_map={'Approved': '#16a34a', 'Rejected': '#dc2626', 'Pending': '#ca8a04'},
                 markers=True
             )
+            
+            fig.update_layout(
+                paper_bgcolor='#ffffff',
+                plot_bgcolor='#ffffff',
+                font=dict(family="Inter, sans-serif", size=11, color="#0f172a"),
+                xaxis=dict(showgrid=False, linecolor='#cbd5e1', tickfont=dict(color='#0f172a', size=11)),
+                yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None, tickfont=dict(color='#0f172a', size=11)),
+                legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='#0f172a', size=12)),
+                height=380,
+                margin=dict(l=15, r=15, t=10, b=10)
+            )
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         else:
-            trend_df = df_filtered.groupby(['Month_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume')
-            trend_df['sort_key'] = pd.to_datetime(trend_df['Month_Display'], format='%b %Y')
-            trend_df = trend_df.sort_values('sort_key')
-            
-            fig = px.line(
-                trend_df, x='Month_Display', y='Volume', color='Cleaned_Quality_Status',
-                labels={'Month_Display': 'Month Block', 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
-                color_discrete_map={'Approved': '#16a34a', 'Rejected': '#dc2626', 'Pending': '#ca8a04'},
-                markers=True
-            )
-            
-        fig.update_layout(
-            paper_bgcolor='#ffffff',
-            plot_bgcolor='#ffffff',
-            font=dict(family="Inter, sans-serif", size=11, color="#0f172a"),
-            xaxis=dict(showgrid=False, linecolor='#cbd5e1', tickfont=dict(color='#0f172a', size=11)),
-            yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None, tickfont=dict(color='#0f172a', size=11)),
-            legend=dict(
-                title=None, 
-                orientation="h", 
-                yanchor="bottom", 
-                y=1.02, 
-                xanchor="right", 
-                x=1,
-                font=dict(color='#0f172a', size=12)
-            ),
-            height=380,
-            margin=dict(l=15, r=15, t=10, b=10)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            st.info("No data tracking segments found for this specific block selection.")
