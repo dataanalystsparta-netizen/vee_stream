@@ -1,0 +1,263 @@
+import streamlit as st
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+import plotly.express as px
+
+# --- 1. SET COMPACT GLOBAL CONFIG ---
+st.set_page_config(
+    page_title="Leads Quality Tracker",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# --- 2. EXECUTIVE THEME RULES (Yellow Header / Professional Palette) ---
+st.config.set_option("theme.backgroundColor", "#f8fafc")
+st.config.set_option("theme.secondaryBackgroundColor", "#ffffff")
+st.config.set_option("theme.textColor", "#0f172a")
+st.config.set_option("theme.primaryColor", "#eab308")  # Corporate Gold/Yellow accent
+
+# Custom Typography & Yellow Header Styling
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;600;700&display=swap');
+    
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Executive Titles */
+    .main-title {
+        font-size: 26px;
+        font-weight: 700;
+        color: #0f172a !important;
+        margin-bottom: 2px;
+    }
+    .subtitle {
+        font-size: 13px;
+        color: #475569 !important;
+        margin-bottom: 20px;
+    }
+    
+    /* Top Summary Cards Styling */
+    .metric-box {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 15px 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .metric-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #475569 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .metric-number {
+        font-size: 24px;
+        font-weight: 700;
+        color: #0f172a !important;
+        margin-top: 2px;
+    }
+    .section-header {
+        font-size: 16px;
+        font-weight: 600;
+        color: #0f172a !important;
+        margin-bottom: 12px;
+    }
+
+    /* Target st.dataframe headers to inject Yellow Branding Layout */
+    div[data-testid="stTable"] th, 
+    div[data-testid="styledDataFrame"] th,
+    .stDataFrame th {
+        background-color: #fef08a !important;  /* Classic yellow background */
+        color: #1e293b !important;             /* High contrast corporate dark text */
+        font-weight: 600 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 3. FAST SPREADSHEET INGEST ENGINE ---
+@st.cache_data(ttl=60)
+def fetch_leads_only():
+    JSON_KEY = 'service_account.json'
+    SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    
+    creds = Credentials.from_service_account_file(JSON_KEY, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    ss = client.open_by_key(SHEET_ID)
+    
+    raw_data = ss.worksheet('leads').get_all_records()
+    df = pd.DataFrame(raw_data)
+    df.columns = df.columns.str.strip()
+    
+    df['Parsed_Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    df['Parsed_Month'] = pd.to_datetime(df['Month'], errors='coerce')
+    
+    df['Day_Display'] = df['Parsed_Date'].dt.strftime('%Y-%m-%d')
+    df['Month_Display'] = df['Parsed_Month'].dt.strftime('%b %Y')
+    
+    if 'Agent' not in df.columns and 'Agent Name' in df.columns:
+        df['Agent'] = df['Agent Name']
+    df['Agent'] = df['Agent'].astype(str).str.strip().str.title()
+    df['Agent'] = df['Agent'].replace(['Nan', 'None', ''], 'Unassigned')
+    
+    if 'Quality Status' in df.columns:
+        df['Quality Status'] = df['Quality Status'].astype(str).str.strip()
+        def normalize_quality(val):
+            val_lower = val.lower()
+            if val_lower in ['approved', 'approve']: return 'Approved'
+            if val_lower in ['rejected', 'reject']: return 'Rejected'
+            return 'Pending'
+        df['Cleaned_Quality_Status'] = df['Quality Status'].apply(normalize_quality)
+    else:
+        df['Cleaned_Quality_Status'] = 'Pending'
+        
+    return df
+
+# Initialize Data Node
+try:
+    df_leads = fetch_leads_only()
+    is_ready = True
+except Exception as e:
+    st.error(f"Sync issue with active data node: {e}")
+    is_ready = False
+
+if is_ready:
+    # --- 4. EXECUTIVES CONTROL PANEL BAR ---
+    left_header, right_filter = st.columns([3, 1])
+    
+    with left_header:
+        st.markdown('<div class="main-title">Leads Allocation Suite</div>', unsafe_allow_html=True)
+        st.markdown('<div class="subtitle">Direct allocation breakdowns and quality status tracking thresholds</div>', unsafe_allow_html=True)
+        
+    with right_filter:
+        valid_months = sorted(
+            [m for m in df_leads['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
+            key=lambda x: pd.to_datetime(x, format='%b %Y')
+        )
+        selected_month = st.selectbox("Timeline Block", ["All Months"] + valid_months)
+
+    # Apply Filtering Cut
+    if selected_month != "All Months":
+        df_filtered = df_leads[df_leads['Month_Display'] == selected_month]
+    else:
+        df_filtered = df_leads
+
+    # High-level Metrics Data Calculation
+    quality_counts = df_filtered['Cleaned_Quality_Status'].value_counts().to_dict()
+    total_leads_in_window = len(df_filtered)
+    approved_count = quality_counts.get('Approved', 0)
+    rejected_count = quality_counts.get('Rejected', 0)
+    pending_count = quality_counts.get('Pending', 0)
+
+    # Render High-Contrast Metrics Summary Cards
+    card_total, card_app, card_rej, card_pen = st.columns(4)
+    with card_total:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">Total Leads</div><div class="metric-number">{total_leads_in_window:,}</div></div>', unsafe_allow_html=True)
+    with card_app:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Approved</div><div class="metric-number" style="color:#16a34a;">{approved_count:,}</div></div>', unsafe_allow_html=True)
+    with card_rej:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Rejected</div><div class="metric-number" style="color:#dc2626;">{rejected_count:,}</div></div>', unsafe_allow_html=True)
+    with card_pen:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending</div><div class="metric-number" style="color:#ca8a04;">{pending_count:,}</div></div>', unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- 5. INTERACTIVE INTERFACE WORK-SPLIT VIEWS ---
+    col_table, col_charts = st.columns([4, 5], gap="large")
+    
+    with col_table:
+        st.markdown('<div class="section-header">Leaderboard Performance (All Statuses)</div>', unsafe_allow_html=True)
+        
+        if not df_filtered.empty:
+            raw_leaderboard = df_filtered.groupby('Agent').agg(
+                Total_Leads=('Agent', 'count'),
+                Approved=('Cleaned_Quality_Status', lambda x: (x == 'Approved').sum()),
+                Rejected=('Cleaned_Quality_Status', lambda x: (x == 'Rejected').sum()),
+                Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
+            ).reset_index()
+            
+            # Combine absolute metrics and inline percentages safely
+            leaderboard = pd.DataFrame()
+            leaderboard['Agent'] = raw_leaderboard['Agent']
+            leaderboard['Total_Leads'] = raw_leaderboard['Total_Leads']
+            
+            # Formatted Columns with inline percentages
+            leaderboard['Approved'] = raw_leaderboard.apply(
+                lambda r: f"{r['Approved']} ({(r['Approved']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
+            )
+            leaderboard['Rejected'] = raw_leaderboard.apply(
+                lambda r: f"{r['Rejected']} ({(r['Rejected']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
+            )
+            leaderboard['Pending'] = raw_leaderboard.apply(
+                lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
+            )
+            
+            leaderboard = leaderboard.sort_values(by='Total_Leads', ascending=False)
+        else:
+            leaderboard = pd.DataFrame(columns=["Agent", "Total_Leads", "Approved", "Rejected", "Pending"])
+
+        # Change column configuration types to TextColumn since they now contain formatted strings
+        st.dataframe(
+            leaderboard.reset_index(drop=True),
+            column_config={
+                "Agent": st.column_config.TextColumn("Consultant Name"),
+                "Total_Leads": st.column_config.NumberColumn("Total", format="%d"),
+                "Approved": st.column_config.TextColumn("🟢 Approved (%)"),
+                "Rejected": st.column_config.TextColumn("🔴 Rejected (%)"),
+                "Pending": st.column_config.TextColumn("🟡 Pending (%)"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            height=400
+        )
+
+    with col_charts:
+        st.markdown('<div class="section-header">Allocation Quality Trend Lines</div>', unsafe_allow_html=True)
+        
+        if selected_month != "All Months":
+            trend_df = df_filtered.groupby(['Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume')
+            trend_df = trend_df.sort_values('Day_Display')
+            
+            fig = px.line(
+                trend_df, x='Day_Display', y='Volume', color='Cleaned_Quality_Status',
+                labels={'Day_Display': 'Date', 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
+                color_discrete_map={'Approved': '#16a34a', 'Rejected': '#dc2626', 'Pending': '#ca8a04'},
+                markers=True
+            )
+        else:
+            trend_df = df_filtered.groupby(['Month_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume')
+            trend_df['sort_key'] = pd.to_datetime(trend_df['Month_Display'], format='%b %Y')
+            trend_df = trend_df.sort_values('sort_key')
+            
+            fig = px.line(
+                trend_df, x='Month_Display', y='Volume', color='Cleaned_Quality_Status',
+                labels={'Month_Display': 'Month Block', 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
+                color_discrete_map={'Approved': '#16a34a', 'Rejected': '#dc2626', 'Pending': '#ca8a04'},
+                markers=True
+            )
+            
+        fig.update_layout(
+            paper_bgcolor='#ffffff',
+            plot_bgcolor='#ffffff',
+            font=dict(family="Inter, sans-serif", size=11, color="#0f172a"),
+            xaxis=dict(showgrid=False, linecolor='#cbd5e1', tickfont=dict(color='#0f172a', size=11)),
+            yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None, tickfont=dict(color='#0f172a', size=11)),
+            legend=dict(
+                title=None, 
+                orientation="h", 
+                yanchor="bottom", 
+                y=1.02, 
+                xanchor="right", 
+                x=1,
+                font=dict(color='#0f172a', size=12)
+            ),
+            height=380,
+            margin=dict(l=15, r=15, t=10, b=10)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
