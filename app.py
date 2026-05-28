@@ -188,8 +188,8 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    st.markdown('<div class="main-title">Sparta Executive Management Ledger</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Real-time workspace sync for digital campaigns, lead distribution nodes and conversion performance matrices</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-title">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Real-time synced dashboard for Vee Repairs containing Agent wise and month wise leads generated, quality status, sales converted etc.</div>', unsafe_allow_html=True)
 
     tab_leads, tab_sales, tab_conversion = st.tabs([
         "📊 Leads Quality Breakdown", 
