@@ -42,6 +42,15 @@ st.markdown("""
 SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
+# Helper to normalize numbers completely (Handles floats like 44.0, formats to clean digits)
+def normalize_phone_string(series):
+    return (
+        series.astype(str)
+        .str.strip()
+        .str.replace(r'\.0$', '', regex=True)  # Remove trailing decimal zero from numeric conversions
+        .str.replace(r'\D', '', regex=True)    # Remove any non-numeric formatting characters
+    )
+
 # --- 3. ROBUST SPREADSHEET INGEST ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_dashboard_data():
@@ -81,11 +90,11 @@ def fetch_dashboard_data():
         df_l['Agent'] = df_l['Agent Name']
     df_l['Agent'] = df_l['Agent'].astype(str).str.strip().str.title().replace(['Nan', 'None', ''], 'Unassigned')
     
-    # Clean PhoneNo in leads for exact matching
-    if 'PhoneNo' in df_l.columns:
-        df_l['Clean_Phone'] = df_l['PhoneNo'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
-    elif 'Phone No' in df_l.columns:
-        df_l['Clean_Phone'] = df_l['Phone No'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
+    # Precise extraction targeting "Phone No." for Leads Sheet
+    if 'Phone No.' in df_l.columns:
+        df_l['Clean_Phone'] = normalize_phone_string(df_l['Phone No.'])
+    elif 'PhoneNo' in df_l.columns:
+        df_l['Clean_Phone'] = normalize_phone_string(df_l['PhoneNo'])
     else:
         df_l['Clean_Phone'] = ""
 
@@ -129,11 +138,13 @@ def fetch_dashboard_data():
     
     df_s['Agent'] = df_s['Agent'].astype(str).str.strip().str.title().replace(['Nan', 'None', ''], 'Unassigned')
     
-    # Clean PhoneNo in sales for exact matching
-    if 'PhoneNo' in df_s.columns:
-        df_s['Clean_Phone'] = df_s['PhoneNo'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
-    elif 'Phone No' in df_s.columns:
-        df_s['Clean_Phone'] = df_s['Phone No'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
+    # Precise extraction targeting "PhoneNo." for Sales Sheet
+    if 'PhoneNo.' in df_s.columns:
+        df_s['Clean_Phone'] = normalize_phone_string(df_s['PhoneNo.'])
+    elif 'PhoneNo' in df_s.columns:
+        df_s['Clean_Phone'] = normalize_phone_string(df_s['PhoneNo'])
+    elif 'Phone No.' in df_s.columns:
+        df_s['Clean_Phone'] = normalize_phone_string(df_s['Phone No.'])
     else:
         df_s['Clean_Phone'] = ""
         
@@ -152,7 +163,6 @@ if is_ready:
 
     tab_leads, tab_sales = st.tabs(["📊 Leads Quality Breakdown", "💰 Sales Verification Tracker"])
     
-    # Global state capture for leads unique clean phone indices to allow cross analysis filtering
     df_l_filtered = df_leads.copy()
     
     # ==========================================
@@ -263,7 +273,6 @@ if is_ready:
         
         with right_s_filt:
             st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True)
-            # CROSS MATCH FILTER TOGGLE CHECKBOX
             enable_cross_match = st.checkbox("🔍 Show Cross-Matched Leads Only", value=False, help="Isolates sales entries whose phone numbers exist in the current filtered leads dataset.")
 
         df_s_filtered = df_sales.copy()
@@ -271,12 +280,12 @@ if is_ready:
         if selected_sales_month != "All Months":
             df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
             
-        # Execute Cross-Matching Logic Filter if checkbox state is checked
+        # Execute Cross-Matching using precisely formatted number strings
         if enable_cross_match:
-            valid_lead_phones = set(df_l_filtered['Clean_Phone'].unique()) - {""}
+            valid_lead_phones = set(df_l_filtered['Clean_Phone'].unique()) - {"", "nan"}
             df_s_filtered = df_s_filtered[df_s_filtered['Clean_Phone'].isin(valid_lead_phones)]
 
-        # Calculate sales status absolute values
+        # Calculate sales status values
         s_status_counts = df_s_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
         s_total = len(df_s_filtered)
         s_live = s_status_counts.get('Live', 0)
