@@ -82,11 +82,13 @@ st.markdown("""
 # --- 3. FAST SPREADSHEET INGEST ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_leads_only():
-    JSON_KEY = 'service_account.json'
     SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
     
-    creds = Credentials.from_service_account_file(JSON_KEY, scopes=SCOPES)
+    # FIX: Pull directly from the Streamlit Secrets environment instead of a local file
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    
     client = gspread.authorize(creds)
     ss = client.open_by_key(SHEET_ID)
     
@@ -201,7 +203,7 @@ if is_ready:
         else:
             leaderboard = pd.DataFrame(columns=["Agent", "Total_Leads", "Approved", "Rejected", "Pending"])
 
-        # Change column configuration types to TextColumn since they now contain formatted strings
+        # Display Dataframe Matrix
         st.dataframe(
             leaderboard.reset_index(drop=True),
             column_config={
