@@ -157,7 +157,6 @@ if is_ready:
         st.markdown('<div class="section-header">Leaderboard Performance (All Statuses)</div>', unsafe_allow_html=True)
         
         if not df_filtered.empty:
-            # Generate absolute aggregated matrix numbers
             raw_leaderboard = df_filtered.groupby('Agent').agg(
                 Total_Leads=('Agent', 'count'),
                 Approved=('Cleaned_Quality_Status', lambda x: (x == 'Approved').sum()),
@@ -165,23 +164,21 @@ if is_ready:
                 Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
             ).reset_index()
             
-            # Sort the individual consultants first
             raw_leaderboard = raw_leaderboard.sort_values(by='Total_Leads', ascending=False)
             
-            # Initialize a processed dashboard dataframe matrix
             leaderboard = pd.DataFrame()
             leaderboard['Agent'] = raw_leaderboard['Agent']
             leaderboard['Total_Leads'] = raw_leaderboard['Total_Leads']
             
-            # Formatted string generation with percentage conversions
+            # Formatted strings with fallback check to insert corporate hiphens "-" for zero tracking values
             leaderboard['Approved'] = raw_leaderboard.apply(
-                lambda r: f"{r['Approved']} ({(r['Approved']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
+                lambda r: f"{r['Approved']} ({(r['Approved']/r['Total_Leads'])*100:.1f}%)" if r['Approved'] > 0 else "-", axis=1
             )
             leaderboard['Rejected'] = raw_leaderboard.apply(
-                lambda r: f"{r['Rejected']} ({(r['Rejected']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
+                lambda r: f"{r['Rejected']} ({(r['Rejected']/r['Total_Leads'])*100:.1f}%)" if r['Rejected'] > 0 else "-", axis=1
             )
             leaderboard['Pending'] = raw_leaderboard.apply(
-                lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Leads'])*100:.1f}%)" if r['Total_Leads'] > 0 else "0 (0.0%)", axis=1
+                lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Leads'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1
             )
             
             # --- COMPUTE FIXED TOTAL ROW ---
@@ -194,22 +191,19 @@ if is_ready:
             pct_rej = (sum_rej / sum_total * 100) if sum_total > 0 else 0.0
             pct_pen = (sum_pen / sum_total * 100) if sum_total > 0 else 0.0
             
-            # Create total dataframe layout line
             total_row = pd.DataFrame([{
                 'Agent': 'TOTAL',
                 'Total_Leads': sum_total,
-                'Approved': f"{sum_app} ({pct_app:.1f}%)",
-                'Rejected': f"{sum_rej} ({pct_rej:.1f}%)",
-                'Pending': f"{sum_pen} ({pct_pen:.1f}%)"
+                'Approved': f"{sum_app} ({pct_app:.1f}%)" if sum_app > 0 else "-",
+                'Rejected': f"{sum_rej} ({pct_rej:.1f}%)" if sum_rej > 0 else "-",
+                'Pending': f"{sum_pen} ({pct_pen:.1f}%)" if sum_pen > 0 else "-"
             }])
             
-            # Append Total Row directly to the bottom matrix line
             leaderboard = pd.concat([leaderboard, total_row], ignore_index=True)
             
         else:
             leaderboard = pd.DataFrame(columns=["Agent", "Total_Leads", "Approved", "Rejected", "Pending"])
 
-        # Render Table Structure
         st.dataframe(
             leaderboard.reset_index(drop=True),
             column_config={
