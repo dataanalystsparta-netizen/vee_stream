@@ -398,11 +398,12 @@ if is_ready:
 
         df_c_filtered['Live_Amount'] = 0.0
         if 'Payment Status' in df_c_filtered.columns:
+            # FIX COMPLETE: Aligned to read from df_c_filtered instead of global df_s block
             df_c_filtered.loc[
                 (df_c_filtered['Payment Status'].astype(str).str.strip().str.lower() == 'accepted') &
                 (df_c_filtered['Cleaned_Payment_Status'] == 'Live'), 
                 'Live_Amount'
-            ] = df_s['Parsed_Amount']
+            ] = df_c_filtered['Parsed_Amount']
 
         valid_lead_phones = set(phone_to_month.keys()) - {"", "nan"}
         df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)].copy()
@@ -508,7 +509,8 @@ if is_ready:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
                     cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
                 
-                fig_c = px.line(trend_df if 'trend_df' in locals() else c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
+                # FIX COMPLETE: Re-linked timeline chart matrix explicitly to c_trend_df boundary
+                fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
                                 color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
                 fig_c.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
