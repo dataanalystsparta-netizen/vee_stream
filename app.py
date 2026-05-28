@@ -161,7 +161,12 @@ if is_ready:
     st.markdown('<div class="main-title">Sparta Executive Management Ledger</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Real-time workspace sync for digital campaigns, lead distribution nodes and conversion performance matrices</div>', unsafe_allow_html=True)
 
-    tab_leads, tab_sales = st.tabs(["📊 Leads Quality Breakdown", "💰 Sales Verification Tracker"])
+    # INITIALIZE THREE SEPARATE APPLICATION WORKSPACE TABS
+    tab_leads, tab_sales, tab_conversion = st.tabs([
+        "📊 Leads Quality Breakdown", 
+        "💰 Sales Verification Tracker", 
+        "🔄 Leads Conversion Status"
+    ])
     
     df_l_filtered = df_leads.copy()
     
@@ -263,27 +268,17 @@ if is_ready:
     # WORKSPACE TAB 2: SALES TRACKER ENGINE
     # ==========================================
     with tab_sales:
-        left_s_filt, right_s_filt = st.columns([1, 1])
+        left_s_filt, right_s_space = st.columns([1, 1])
         with left_s_filt:
             valid_sales_months = sorted(
                 [m for m in df_sales['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
                 key=lambda x: pd.to_datetime(x, format='%b %Y')
             )
             selected_sales_month = st.selectbox("Sales Processing Window", ["All Months"] + valid_sales_months, key="sales_mth_filter")
-        
-        with right_s_filt:
-            st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True)
-            enable_cross_match = st.checkbox("🔍 Show Cross-Matched Leads Only", value=False, help="Isolates sales entries whose phone numbers exist in the current filtered leads dataset.")
 
         df_s_filtered = df_sales.copy()
-        
         if selected_sales_month != "All Months":
             df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
-            
-        # Execute Cross-Matching using precisely formatted number strings
-        if enable_cross_match:
-            valid_lead_phones = set(df_l_filtered['Clean_Phone'].unique()) - {"", "nan"}
-            df_s_filtered = df_s_filtered[df_s_filtered['Clean_Phone'].isin(valid_lead_phones)]
 
         # Calculate sales status values
         s_status_counts = df_s_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
@@ -360,5 +355,103 @@ if is_ready:
                                     xaxis=dict(showgrid=False, linecolor='#cbd5e1'), yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None),
                                     legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
                 st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
+
+    # ==========================================
+    # WORKSPACE TAB 3: LEADS CONVERSION STATUS (NEW!)
+    # ==========================================
+    with tab_conversion:
+        left_c_filt, right_c_space = st.columns([1, 1])
+        with left_c_filt:
+            valid_conv_months = sorted(
+                [m for m in df_sales['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
+                key=lambda x: pd.to_datetime(x, format='%b %Y')
+            )
+            selected_conv_month = st.selectbox("Conversion Timeline Window", ["All Months"] + valid_conv_months, key="conv_mth_filter")
+
+        # Start with a complete clone of the sales file
+        df_c_filtered = df_sales.copy()
+        
+        if selected_conv_month != "All Months":
+            df_c_filtered = df_c_filtered[df_c_filtered['Month_Display'] == selected_conv_month]
+            
+        # Isolate entries matching valid phone indices from the leads baseline
+        valid_lead_phones = set(df_l_filtered['Clean_Phone'].unique()) - {"", "nan"}
+        df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)]
+
+        # Calculate tracking KPIs for matched subsets
+        c_status_counts = df_c_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
+        c_total = len(df_c_filtered)
+        c_live = c_status_counts.get('Live', 0)
+        c_canc = c_status_counts.get('Cancelled', 0)
+        c_pend = c_status_counts.get('Pending', 0)
+
+        cc1, cc2, cc3, cc4 = st.columns(4)
+        cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted Leads</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
+        cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,}</div></div>', unsafe_allow_html=True)
+        cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_canc:,}</div></div>', unsafe_allow_html=True)
+        cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,}</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        col_c_table, col_c_chart = st.columns([4, 5], gap="large")
+        
+        with col_c_table:
+            st.markdown('<div class="section-header">Conversion Efficiency Ledger</div>', unsafe_allow_html=True)
+            if not df_c_filtered.empty:
+                raw_c_lb = df_c_filtered.groupby('Agent').agg(
+                    Total_Sales=('Agent', 'count'),
+                    Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
+                    Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
+                    Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum())
+                ).reset_index().sort_values(by='Total_Sales', ascending=False)
+                
+                c_leaderboard = pd.DataFrame()
+                c_leaderboard['Agent'] = raw_c_lb['Agent']
+                c_leaderboard['Total_Sales'] = raw_c_lb['Total_Sales']
+                
+                c_leaderboard['Live'] = raw_c_lb.apply(lambda r: f"{r['Live']} ({(r['Live']/r['Total_Sales'])*100:.1f}%)" if r['Live'] > 0 else "-", axis=1)
+                c_leaderboard['Cancelled'] = raw_c_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
+                c_leaderboard['Pending'] = raw_c_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
+                
+                tot_c_sum = raw_c_lb['Total_Sales'].sum()
+                tot_c_live = raw_c_lb['Live'].sum()
+                tot_c_canc = raw_c_lb['Cancelled'].sum()
+                tot_c_pend = raw_c_lb['Pending'].sum()
+                
+                c_total_row = pd.DataFrame([{
+                    'Agent': 'TOTAL', 'Total_Sales': tot_c_sum,
+                    'Live': f"{tot_c_live} ({(tot_c_live/tot_c_sum)*100:.1f}%)" if tot_c_live > 0 else "-",
+                    'Cancelled': f"{tot_c_canc} ({(tot_c_canc/tot_c_sum)*100:.1f}%)" if tot_c_canc > 0 else "-",
+                    'Pending': f"{tot_c_pend} ({(tot_c_pend/tot_c_sum)*100:.1f}%)" if tot_c_pend > 0 else "-"
+                }])
+                c_leaderboard = pd.concat([c_leaderboard, c_total_row], ignore_index=True)
             else:
-                st.info("No matching cross-referenced customer records found for this sequence selection.")
+                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending"])
+
+            st.dataframe(c_leaderboard.reset_index(drop=True), column_config={
+                "Agent": st.column_config.TextColumn("Consultant Name"),
+                "Total_Sales": st.column_config.NumberColumn("Total Sales", format="%d"),
+                "Live": st.column_config.TextColumn("🟢 Live (%)"),
+                "Cancelled": st.column_config.TextColumn("🔴 Cancelled (%)"),
+                "Pending": st.column_config.TextColumn("🟡 Pending (%)"),
+            }, hide_index=True, use_container_width=True, height=400)
+            
+        with col_c_chart:
+            st.markdown('<div class="section-header">Cross-Matched Lead Velocity Trends</div>', unsafe_allow_html=True)
+            if not df_c_filtered.empty:
+                if selected_conv_month != "All Months":
+                    c_trend_df = df_c_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
+                    cx_col, cx_lbl = 'Day_Display', 'Date'
+                else:
+                    c_trend_df = df_c_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Parsed_Month')
+                    cx_col, cx_lbl = 'Month_Display', 'Month Block'
+                
+                fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
+                                labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
+                                color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
+                fig_c.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
+                                    xaxis=dict(showgrid=False, linecolor='#cbd5e1'), yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None),
+                                    legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
+                st.plotly_chart(fig_c, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("No converted lead phone numbers found for this timeline slice.")
