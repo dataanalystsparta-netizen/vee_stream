@@ -439,7 +439,7 @@ if is_ready:
         # --- Tier 2: Dedicated Top-Level Root Cause Strip ---
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'<span style="font-weight:700; color:#1e293b; font-size:13px; margin-right:15px; text-transform:uppercase; letter-spacing:0.3px;">🔍 Operational Breakdown of Cancelled Volume:</span>'
+            f'<span style="font-weight:700; color:#1e293b; font-size:13px; margin-right:15px; text-transform:uppercase; letter-spacing:0.3px;">🔍 Breakdown of Cancelled Volume:</span>'
             f'<span class="breakdown-item" style="margin-right:25px;">🚫 <b>Payment Status Disallowed:</b> {c_pay_cancel:,} records ({(c_pay_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
             f'<span class="breakdown-item">📋 <b>WC Cancelled (Welcome Override):</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
             f'</div>', 
