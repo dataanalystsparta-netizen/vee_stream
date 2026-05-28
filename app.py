@@ -81,6 +81,14 @@ def fetch_dashboard_data():
         df_l['Agent'] = df_l['Agent Name']
     df_l['Agent'] = df_l['Agent'].astype(str).str.strip().str.title().replace(['Nan', 'None', ''], 'Unassigned')
     
+    # Clean PhoneNo in leads for exact matching
+    if 'PhoneNo' in df_l.columns:
+        df_l['Clean_Phone'] = df_l['PhoneNo'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
+    elif 'Phone No' in df_l.columns:
+        df_l['Clean_Phone'] = df_l['Phone No'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
+    else:
+        df_l['Clean_Phone'] = ""
+
     if 'Quality Status' in df_l.columns:
         df_l['Quality Status'] = df_l['Quality Status'].astype(str).str.strip()
         df_l['Cleaned_Quality_Status'] = df_l['Quality Status'].apply(
@@ -94,21 +102,17 @@ def fetch_dashboard_data():
     df_s = pd.DataFrame(raw_sales)
     df_s.columns = df_s.columns.str.strip()
     
-    # Process Sales Payment Status Engine (Blank -> Pending, Accepted -> Live, Else -> Cancelled)
     if 'Payment Status' in df_s.columns:
         df_s['Cleaned_Payment_Status'] = df_s['Payment Status'].astype(str).str.strip()
-        # Create standard blank indicator mapping masks
         blank_mask = df_s['Cleaned_Payment_Status'].isin(['nan', 'None', '', 'NaN'])
         accepted_mask = df_s['Cleaned_Payment_Status'].str.lower() == 'accepted'
         
-        # Apply structured updates chronologically
         df_s['Cleaned_Payment_Status'] = 'Cancelled'
         df_s.loc[blank_mask, 'Cleaned_Payment_Status'] = 'Pending'
         df_s.loc[accepted_mask, 'Cleaned_Payment_Status'] = 'Live'
     else:
         df_s['Cleaned_Payment_Status'] = 'Pending'
         
-    # Process Sales Timestamps
     df_s['Parsed_Date'] = pd.to_datetime(df_s['Date'], errors='coerce')
     missing_s_dates = df_s['Parsed_Date'].isna()
     if missing_s_dates.any():
@@ -125,6 +129,14 @@ def fetch_dashboard_data():
     
     df_s['Agent'] = df_s['Agent'].astype(str).str.strip().str.title().replace(['Nan', 'None', ''], 'Unassigned')
     
+    # Clean PhoneNo in sales for exact matching
+    if 'PhoneNo' in df_s.columns:
+        df_s['Clean_Phone'] = df_s['PhoneNo'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
+    elif 'Phone No' in df_s.columns:
+        df_s['Clean_Phone'] = df_s['Phone No'].astype(str).str.replace(r'\D', '', regex=True).str.strip()
+    else:
+        df_s['Clean_Phone'] = ""
+        
     return df_l, df_s
 
 try:
@@ -135,18 +147,18 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    # --- 4. TOP EXECUTIVE HEADER LINE ---
     st.markdown('<div class="main-title">Sparta Executive Management Ledger</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Real-time workspace sync for digital campaigns, lead distribution nodes and conversion performance matrices</div>', unsafe_allow_html=True)
 
-    # Initialize Core Application Workspace Tabs
     tab_leads, tab_sales = st.tabs(["📊 Leads Quality Breakdown", "💰 Sales Verification Tracker"])
+    
+    # Global state capture for leads unique clean phone indices to allow cross analysis filtering
+    df_l_filtered = df_leads.copy()
     
     # ==========================================
     # WORKSPACE TAB 1: LEADS ANALYSIS ENGINE
     # ==========================================
     with tab_leads:
-        # Interface Filter Bars
         left_lead_filt, right_lead_filt = st.columns([1, 1])
         with left_lead_filt:
             selected_source = st.selectbox("Lead Distribution Branch", ["All Sources", "Delhi", "Ranchi"], key="lead_src_filter")
@@ -157,21 +169,17 @@ if is_ready:
             )
             selected_lead_month = st.selectbox("Timeline Block", ["All Months"] + valid_lead_months, key="lead_mth_filter")
 
-        # Dynamic Filters Execution
-        df_l_filtered = df_leads.copy()
         if selected_source != "All Sources":
             df_l_filtered = df_l_filtered[df_l_filtered['Mapped_Source'] == selected_source]
         if selected_lead_month != "All Months":
             df_l_filtered = df_l_filtered[df_l_filtered['Month_Display'] == selected_lead_month]
 
-        # Calculate KPIs metrics
         l_quality_counts = df_l_filtered['Cleaned_Quality_Status'].value_counts().to_dict()
         l_total = len(df_l_filtered)
         l_app = l_quality_counts.get('Approved', 0)
         l_rej = l_quality_counts.get('Rejected', 0)
         l_pen = l_quality_counts.get('Pending', 0)
 
-        # Render Metrics Row
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f'<div class="metric-box"><div class="metric-label">Total Allocated</div><div class="metric-number">{l_total:,}</div></div>', unsafe_allow_html=True)
         c2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Approved</div><div class="metric-number" style="color:#16a34a;">{l_app:,}</div></div>', unsafe_allow_html=True)
@@ -200,7 +208,6 @@ if is_ready:
                 l_leaderboard['Rejected'] = raw_l_lb.apply(lambda r: f"{r['Rejected']} ({(r['Rejected']/r['Total_Leads'])*100:.1f}%)" if r['Rejected'] > 0 else "-", axis=1)
                 l_leaderboard['Pending'] = raw_l_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Leads'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
                 
-                # Append Fixed Row Footer Calculations
                 tot_l_sum = raw_l_lb['Total_Leads'].sum()
                 tot_l_app = raw_l_lb['Approved'].sum()
                 tot_l_rej = raw_l_lb['Rejected'].sum()
@@ -246,18 +253,28 @@ if is_ready:
     # WORKSPACE TAB 2: SALES TRACKER ENGINE
     # ==========================================
     with tab_sales:
-        # Timeline filter matching sales sheet records blocks
-        left_s_filt, right_s_space = st.columns([1, 1])
+        left_s_filt, right_s_filt = st.columns([1, 1])
         with left_s_filt:
             valid_sales_months = sorted(
                 [m for m in df_sales['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
                 key=lambda x: pd.to_datetime(x, format='%b %Y')
             )
             selected_sales_month = st.selectbox("Sales Processing Window", ["All Months"] + valid_sales_months, key="sales_mth_filter")
+        
+        with right_s_filt:
+            st.markdown("<div style='height: 25px;'></div>", unsafe_allow_html=True)
+            # CROSS MATCH FILTER TOGGLE CHECKBOX
+            enable_cross_match = st.checkbox("🔍 Show Cross-Matched Leads Only", value=False, help="Isolates sales entries whose phone numbers exist in the current filtered leads dataset.")
 
         df_s_filtered = df_sales.copy()
+        
         if selected_sales_month != "All Months":
             df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
+            
+        # Execute Cross-Matching Logic Filter if checkbox state is checked
+        if enable_cross_match:
+            valid_lead_phones = set(df_l_filtered['Clean_Phone'].unique()) - {""}
+            df_s_filtered = df_s_filtered[df_s_filtered['Clean_Phone'].isin(valid_lead_phones)]
 
         # Calculate sales status absolute values
         s_status_counts = df_s_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
@@ -266,7 +283,6 @@ if is_ready:
         s_canc = s_status_counts.get('Cancelled', 0)
         s_pend = s_status_counts.get('Pending', 0)
 
-        # Render Sales Metrics Summary Cards
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Logged Sales</div><div class="metric-number">{s_total:,}</div></div>', unsafe_allow_html=True)
         sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,}</div></div>', unsafe_allow_html=True)
@@ -275,7 +291,6 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # Sales Audit Layout Worksplit Views
         col_s_table, col_s_chart = st.columns([4, 5], gap="large")
         
         with col_s_table:
@@ -296,7 +311,6 @@ if is_ready:
                 s_leaderboard['Cancelled'] = raw_s_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
                 s_leaderboard['Pending'] = raw_s_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
                 
-                # Compute Fixed Row Footer Calculations for Sales Matrix
                 tot_s_sum = raw_s_lb['Total_Sales'].sum()
                 tot_s_live = raw_s_lb['Live'].sum()
                 tot_s_canc = raw_s_lb['Cancelled'].sum()
@@ -337,3 +351,5 @@ if is_ready:
                                     xaxis=dict(showgrid=False, linecolor='#cbd5e1'), yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None),
                                     legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
                 st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("No matching cross-referenced customer records found for this sequence selection.")
