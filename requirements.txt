@@ -1,0 +1,13 @@
+pandas
+gspread
+google-auth
+streamlit>=1.35.0
+altair<6.0.0
+matplotlib
+jinja2
+numpy
+plotly
+xlsxwriter
+fpdf
+folium
+streamlit_folium
