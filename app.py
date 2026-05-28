@@ -122,7 +122,10 @@ def fetch_dashboard_data():
     else:
         df_s['Parsed_Amount'] = 0.0
 
-    # Preserve the original text for deep structural analysis later
+    # Process core metrics & capture granular operational flags safely
+    df_s['Cancel_Reason'] = 'None'
+    df_s['Disallowed_Subcategory'] = 'None'
+
     if 'Payment Status' in df_s.columns:
         df_s['Raw_Payment_Status'] = df_s['Payment Status'].astype(str).str.strip()
         df_s['Cleaned_Payment_Status'] = 'Cancelled'
@@ -132,9 +135,20 @@ def fetch_dashboard_data():
         
         df_s.loc[blank_mask, 'Cleaned_Payment_Status'] = 'Pending'
         df_s.loc[accepted_mask, 'Cleaned_Payment_Status'] = 'Live'
+        
+        # Segment 1 Cancel Reason: Base payment disallowance rules
+        is_cancelled_mask = df_s['Cleaned_Payment_Status'] == 'Cancelled'
+        df_s.loc[is_cancelled_mask, 'Cancel_Reason'] = 'Payment Cancelled'
+        df_s.loc[is_cancelled_mask, 'Disallowed_Subcategory'] = df_s.loc[is_cancelled_mask, 'Raw_Payment_Status']
     else:
         df_s['Raw_Payment_Status'] = 'Pending'
         df_s['Cleaned_Payment_Status'] = 'Pending'
+
+    # Segment 2 Cancel Reason: Welcome Call status override logic node
+    if 'WlcmStatus' in df_s.columns:
+        wc_cancel_mask = (df_s['Cleaned_Payment_Status'] == 'Pending') & (df_s['WlcmStatus'].astype(str).str.strip().str.title() == 'Cancelled')
+        df_s.loc[wc_cancel_mask, 'Cancel_Reason'] = 'WC Cancelled'
+        df_s.loc[wc_cancel_mask, 'Cleaned_Payment_Status'] = 'Cancelled'
         
     df_s['Live_Amount'] = 0.0
     df_s.loc[df_s['Cleaned_Payment_Status'] == 'Live', 'Live_Amount'] = df_s['Parsed_Amount']
@@ -183,8 +197,6 @@ if is_ready:
         "🔄 Leads Conversion Status"
     ])
     
-    df_l_filtered = df_leads.copy()
-    
     # ==========================================
     # WORKSPACE TAB 1: LEADS ANALYSIS ENGINE
     # ==========================================
@@ -199,6 +211,7 @@ if is_ready:
             )
             selected_lead_month = st.selectbox("Timeline Block", ["All Months"] + valid_lead_months, key="lead_mth_filter")
 
+        df_l_filtered = df_leads.copy()
         if selected_source != "All Sources":
             df_l_filtered = df_l_filtered[df_l_filtered['Mapped_Source'] == selected_source]
         if selected_lead_month != "All Months":
@@ -280,7 +293,7 @@ if is_ready:
                 st.plotly_chart(fig_l, use_container_width=True, config={'displayModeBar': False})
 
     # ==========================================
-    # WORKSPACE TAB 2: SALES TRACKER ENGINE
+    # WORKSPACE TAB 2: SALES TRACKER ENGINE (With Breakdown Update)
     # ==========================================
     with tab_sales:
         left_s_filt, right_s_space = st.columns([1, 1])
@@ -296,16 +309,49 @@ if is_ready:
             df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
 
         s_status_counts = df_s_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
+        s_reason_counts = df_s_filtered['Cancel_Reason'].value_counts().to_dict()
+        
         s_total = len(df_s_filtered)
         s_live = s_status_counts.get('Live', 0)
-        s_canc = s_status_counts.get('Cancelled', 0)
         s_pend = s_status_counts.get('Pending', 0)
+        
+        s_pay_cancel = s_reason_counts.get('Payment Cancelled', 0)
+        s_wc_cancel = s_reason_counts.get('WC Cancelled', 0)
+        s_total_cancel = s_pay_cancel + s_wc_cancel
 
+        # --- KPI Panels ---
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Logged Sales</div><div class="metric-number">{s_total:,}</div></div>', unsafe_allow_html=True)
         sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,}</div></div>', unsafe_allow_html=True)
-        sc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Cancelled</div><div class="metric-number" style="color:#dc2626;">{s_canc:,}</div></div>', unsafe_allow_html=True)
+        sc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{s_total_cancel:,}</div></div>', unsafe_allow_html=True)
         sc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Review</div><div class="metric-number" style="color:#ca8a04;">{s_pend:,}</div></div>', unsafe_allow_html=True)
+
+        # --- Executive Cancellation Breakdown Strip ---
+        df_s_disallowed_only = df_s_filtered[df_s_filtered['Cancel_Reason'] == 'Payment Cancelled']
+        s_sub_cat_counts = df_s_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
+        
+        s_sub_html_items = []
+        for cat_name, count in s_sub_cat_counts.items():
+            if cat_name not in ['None', 'nan', '']:
+                pct = (count / s_pay_cancel * 100) if s_pay_cancel > 0 else 0
+                s_sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
+        
+        s_sub_cat_string = " ".join(s_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No distinct category sub-metrics discovered</span>'
+
+        st.markdown(
+            f'<div class="breakdown-strip">'
+            f'  <div class="breakdown-title">🔍 Operational Breakdown of Cancelled Volume</div>'
+            f'  <div class="breakdown-sub-box" style="margin-bottom: 8px;">'
+            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled (Override Node):</b> {s_wc_cancel:,} records ({(s_wc_cancel/s_total_cancel*100 if s_total_cancel > 0 else 0):.1f}%)</span>'
+            f'  </div>'
+            f'  <div style="border-top: 1px dashed #cbd5e1; margin: 8px 0;"></div>'
+            f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Disallowed Subcategories ({s_pay_cancel:,} Total):</div>'
+            f'  <div class="breakdown-sub-box">'
+            f'      {s_sub_cat_string}'
+            f'  </div>'
+            f'</div>', 
+            unsafe_allow_html=True
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -389,25 +435,7 @@ if is_ready:
         phone_to_ddisplay = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Day_Display']))
 
         df_c_filtered = df_sales.copy()
-        df_c_filtered['Cancel_Reason'] = 'None'
-        df_c_filtered['Disallowed_Subcategory'] = 'None'
         
-        # Base payment status rules mapping
-        is_cancelled_mask = df_c_filtered['Cleaned_Payment_Status'] == 'Cancelled'
-        df_c_filtered.loc[is_cancelled_mask, 'Cancel_Reason'] = 'Payment Cancelled'
-        
-        # Extract underlying subcategories from raw payment text (ignoring Accepted/Blank rows)
-        df_c_filtered.loc[is_cancelled_mask, 'Disallowed_Subcategory'] = df_c_filtered.loc[is_cancelled_mask, 'Raw_Payment_Status']
-
-        # Welcome Status operational override (WC Cancelled)
-        if 'WlcmStatus' in df_c_filtered.columns:
-            wc_cancel_mask = (df_c_filtered['Cleaned_Payment_Status'] == 'Pending') & (df_c_filtered['WlcmStatus'].astype(str).str.strip().str.title() == 'Cancelled')
-            df_c_filtered.loc[wc_cancel_mask, 'Cancel_Reason'] = 'WC Cancelled'
-            df_c_filtered.loc[wc_cancel_mask, 'Cleaned_Payment_Status'] = 'Cancelled'
-
-        df_c_filtered['Live_Amount'] = 0.0
-        df_c_filtered.loc[df_c_filtered['Cleaned_Payment_Status'] == 'Live', 'Live_Amount'] = df_c_filtered['Parsed_Amount']
-
         valid_lead_phones = set(phone_to_month.keys()) - {"", "nan"}
         df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)].copy()
 
@@ -441,28 +469,27 @@ if is_ready:
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
         # --- Tier 2: Deep Component Operational Review Panel ---
-        # Calculate dynamic categorical value allocations for the disallowed column values
-        df_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
-        sub_cat_counts = df_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
+        df_c_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
+        c_sub_cat_counts = df_c_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
-        sub_html_items = []
-        for cat_name, count in sub_cat_counts.items():
+        c_sub_html_items = []
+        for cat_name, count in c_sub_cat_counts.items():
             if cat_name not in ['None', 'nan', '']:
                 pct = (count / c_pay_cancel * 100) if c_pay_cancel > 0 else 0
-                sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
+                c_sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
         
-        sub_cat_string = " ".join(sub_html_items) if sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
+        c_sub_cat_string = " ".join(c_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'  <div class="breakdown-title">🔍 Breakdown of Cancelled Volume</div>'
+            f'  <div class="breakdown-title">🔍 Operational Breakdown of Cancelled Volume</div>'
             f'  <div class="breakdown-sub-box" style="margin-bottom: 8px;">'
-            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled:</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
+            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled (Override Node):</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
             f'  </div>'
             f'  <div style="border-top: 1px dashed #cbd5e1; margin: 8px 0;"></div>'
-            f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Cancelled Subcategories ({c_pay_cancel:,} Total):</div>'
+            f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Disallowed Subcategories ({c_pay_cancel:,} Total):</div>'
             f'  <div class="breakdown-sub-box">'
-            f'      {sub_cat_string}'
+            f'      {c_sub_cat_string}'
             f'  </div>'
             f'</div>', 
             unsafe_allow_html=True
