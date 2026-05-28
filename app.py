@@ -111,6 +111,15 @@ def fetch_dashboard_data():
     df_s = pd.DataFrame(raw_sales)
     df_s.columns = df_s.columns.str.strip()
     
+    # Process original payment metrics first before updates
+    if 'Amount' in df_s.columns:
+        df_s['Parsed_Amount'] = pd.to_numeric(
+            df_s['Amount'].astype(str).str.replace(r'[^\d.]', '', regex=True), 
+            errors='coerce'
+        ).fillna(0.0)
+    else:
+        df_s['Parsed_Amount'] = 0.0
+
     if 'Payment Status' in df_s.columns:
         df_s['Cleaned_Payment_Status'] = df_s['Payment Status'].astype(str).str.strip()
         blank_mask = df_s['Cleaned_Payment_Status'].isin(['nan', 'None', '', 'NaN'])
@@ -121,6 +130,11 @@ def fetch_dashboard_data():
         df_s.loc[accepted_mask, 'Cleaned_Payment_Status'] = 'Live'
     else:
         df_s['Cleaned_Payment_Status'] = 'Pending'
+        
+    # Isolate financial realization strictly to accepted payment states
+    df_s['Live_Amount'] = 0.0
+    if 'Payment Status' in df_s.columns:
+        df_s.loc[df_s['Payment Status'].astype(str).str.strip().str.lower() == 'accepted', 'Live_Amount'] = df_s['Parsed_Amount']
         
     df_s['Parsed_Date'] = pd.to_datetime(df_s['Date'], errors='coerce')
     missing_s_dates = df_s['Parsed_Date'].isna()
@@ -386,6 +400,15 @@ if is_ready:
                 'Cleaned_Payment_Status'
             ] = 'Cancelled'
 
+        # CRITICAL REVENUE INTERCEPT: Re-verify Live Amount to handle any structural overrides cleanly
+        df_c_filtered['Live_Amount'] = 0.0
+        if 'Payment Status' in df_c_filtered.columns:
+            df_c_filtered.loc[
+                (df_c_filtered['Payment Status'].astype(str).str.strip().str.lower() == 'accepted') &
+                (df_c_filtered['Cleaned_Payment_Status'] == 'Live'), 
+                'Live_Amount'
+            ] = df_c_filtered['Parsed_Amount']
+
         valid_lead_phones = set(phone_to_month.keys()) - {"", "nan"}
         df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)].copy()
 
@@ -405,25 +428,28 @@ if is_ready:
         c_live = c_status_counts.get('Live', 0)
         c_canc = c_status_counts.get('Cancelled', 0)
         c_pend = c_status_counts.get('Pending', 0)
+        c_revenue = df_c_filtered['Live_Amount'].sum()
 
-        cc1, cc2, cc3, cc4 = st.columns(4)
+        cc1, cc2, cc3, cc4, cc5 = st.columns(5)
         cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted Leads</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
         cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,}</div></div>', unsafe_allow_html=True)
         cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_canc:,}</div></div>', unsafe_allow_html=True)
         cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,}</div></div>', unsafe_allow_html=True)
+        cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Live Invoiced Revenue</div><div class="metric-number" style="color:#0f172a;">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        col_c_table, col_c_chart = st.columns([4, 5], gap="large")
+        col_c_table, col_c_chart = st.columns([9, 10], gap="large")
         
         with col_c_table:
-            st.markdown('<div class="section-header">Conversion Efficiency Ledger</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Conversion Efficiency & Revenue Ledger</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
                 raw_c_lb = df_c_filtered.groupby('Agent').agg(
                     Total_Sales=('Agent', 'count'),
                     Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
                     Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
-                    Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum())
+                    Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
+                    Revenue=('Live_Amount', 'sum')
                 ).reset_index().sort_values(by='Total_Sales', ascending=False)
                 
                 c_leaderboard = pd.DataFrame()
@@ -433,21 +459,24 @@ if is_ready:
                 c_leaderboard['Live'] = raw_c_lb.apply(lambda r: f"{r['Live']} ({(r['Live']/r['Total_Sales'])*100:.1f}%)" if r['Live'] > 0 else "-", axis=1)
                 c_leaderboard['Cancelled'] = raw_c_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
                 c_leaderboard['Pending'] = raw_c_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
+                c_leaderboard['Revenue'] = raw_c_lb['Revenue']
                 
                 tot_c_sum = raw_c_lb['Total_Sales'].sum()
                 tot_c_live = raw_c_lb['Live'].sum()
                 tot_c_canc = raw_c_lb['Cancelled'].sum()
                 tot_c_pend = raw_c_lb['Pending'].sum()
+                tot_c_rev = raw_c_lb['Revenue'].sum()
                 
                 c_total_row = pd.DataFrame([{
                     'Agent': 'TOTAL', 'Total_Sales': tot_c_sum,
                     'Live': f"{tot_c_live} ({(tot_c_live/tot_c_sum)*100:.1f}%)" if tot_c_live > 0 else "-",
                     'Cancelled': f"{tot_c_canc} ({(tot_c_canc/tot_c_sum)*100:.1f}%)" if tot_c_canc > 0 else "-",
-                    'Pending': f"{tot_c_pend} ({(tot_c_pend/tot_c_sum)*100:.1f}%)" if tot_c_pend > 0 else "-"
+                    'Pending': f"{tot_c_pend} ({(tot_c_pend/tot_c_sum)*100:.1f}%)" if tot_c_pend > 0 else "-",
+                    'Revenue': tot_c_rev
                 }])
                 c_leaderboard = pd.concat([c_leaderboard, c_total_row], ignore_index=True)
             else:
-                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending"])
+                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending", "Revenue"])
 
             st.dataframe(c_leaderboard.reset_index(drop=True), column_config={
                 "Agent": st.column_config.TextColumn("Consultant Name"),
@@ -455,6 +484,7 @@ if is_ready:
                 "Live": st.column_config.TextColumn("🟢 Live (%)"),
                 "Cancelled": st.column_config.TextColumn("🔴 Cancelled (%)"),
                 "Pending": st.column_config.TextColumn("🟡 Pending (%)"),
+                "Revenue": st.column_config.NumberColumn("💰 Live Revenue", format="£%.2f"),
             }, hide_index=True, use_container_width=True, height=400)
             
         with col_c_chart:
@@ -468,7 +498,6 @@ if is_ready:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
                     cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
                 
-                # FIXED: Changed df argument from trend_df to c_trend_df
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
                                 color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
