@@ -161,7 +161,6 @@ if is_ready:
     st.markdown('<div class="main-title">Sparta Executive Management Ledger</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Real-time workspace sync for digital campaigns, lead distribution nodes and conversion performance matrices</div>', unsafe_allow_html=True)
 
-    # INITIALIZE THREE SEPARATE APPLICATION WORKSPACE TABS
     tab_leads, tab_sales, tab_conversion = st.tabs([
         "📊 Leads Quality Breakdown", 
         "💰 Sales Verification Tracker", 
@@ -357,26 +356,39 @@ if is_ready:
                 st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
     # ==========================================
-    # WORKSPACE TAB 3: LEADS CONVERSION STATUS (NEW!)
+    # WORKSPACE TAB 3: LEADS CONVERSION STATUS (Month from Leads Table)
     # ==========================================
     with tab_conversion:
         left_c_filt, right_c_space = st.columns([1, 1])
         with left_c_filt:
+            # Dropdown options are generated directly from the LEADS table
             valid_conv_months = sorted(
-                [m for m in df_sales['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
+                [m for m in df_leads['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
                 key=lambda x: pd.to_datetime(x, format='%b %Y')
             )
-            selected_conv_month = st.selectbox("Conversion Timeline Window", ["All Months"] + valid_conv_months, key="conv_mth_filter")
+            selected_conv_month = st.selectbox("Conversion Timeline Window (Lead Month)", ["All Months"] + valid_conv_months, key="conv_mth_filter")
 
-        # Start with a complete clone of the sales file
+        # Map each clean phone number in the leads table to its designated display month and parse dates
+        phone_lead_meta = df_leads.dropna(subset=['Clean_Phone']).drop_duplicates(subset=['Clean_Phone'])
+        phone_to_month = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Month_Display']))
+        phone_to_pmonth = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Month']))
+        phone_to_pdate = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Date']))
+        phone_to_ddisplay = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Day_Display']))
+
+        # Prepare matched sales base records
         df_c_filtered = df_sales.copy()
-        
+        valid_lead_phones = set(phone_to_month.keys()) - {"", "nan"}
+        df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)].copy()
+
+        # Inject the baseline timelines derived from the LEADS worksheet records
+        df_c_filtered['Lead_Month_Display'] = df_c_filtered['Clean_Phone'].map(phone_to_month)
+        df_c_filtered['Lead_Parsed_Month'] = df_c_filtered['Clean_Phone'].map(phone_to_pmonth)
+        df_c_filtered['Lead_Parsed_Date'] = df_c_filtered['Clean_Phone'].map(phone_to_pdate)
+        df_c_filtered['Lead_Day_Display'] = df_c_filtered['Clean_Phone'].map(phone_to_ddisplay)
+
+        # Apply the timeline block filter based on the newly attached Lead Month values
         if selected_conv_month != "All Months":
-            df_c_filtered = df_c_filtered[df_c_filtered['Month_Display'] == selected_conv_month]
-            
-        # Isolate entries matching valid phone indices from the leads baseline
-        valid_lead_phones = set(df_l_filtered['Clean_Phone'].unique()) - {"", "nan"}
-        df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)]
+            df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
         # Calculate tracking KPIs for matched subsets
         c_status_counts = df_c_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
@@ -439,12 +451,13 @@ if is_ready:
         with col_c_chart:
             st.markdown('<div class="section-header">Cross-Matched Lead Velocity Trends</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
+                # Use Lead baseline dates for line charts to synchronize the view completely
                 if selected_conv_month != "All Months":
-                    c_trend_df = df_c_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
-                    cx_col, cx_lbl = 'Day_Display', 'Date'
+                    c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Date', 'Lead_Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Date')
+                    cx_col, cx_lbl = 'Lead_Day_Display', 'Date (Lead Timeline)'
                 else:
-                    c_trend_df = df_c_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Parsed_Month')
-                    cx_col, cx_lbl = 'Month_Display', 'Month Block'
+                    c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
+                    cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
                 
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
