@@ -1,4 +1,4 @@
-#import streamlit as st
+import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -377,6 +377,15 @@ if is_ready:
 
         # Prepare matched sales base records
         df_c_filtered = df_sales.copy()
+        
+        # Apply strict logic: If WlcmStatus is Cancelled, force status to Cancelled even if payment status is Pending (blank)
+        if 'WlcmStatus' in df_c_filtered.columns:
+            df_c_filtered.loc[
+                (df_c_filtered['Cleaned_Payment_Status'] == 'Pending') & 
+                (df_c_filtered['WlcmStatus'].astype(str).str.strip().str.title() == 'Cancelled'),
+                'Cleaned_Payment_Status'
+            ] = 'Cancelled'
+
         valid_lead_phones = set(phone_to_month.keys()) - {"", "nan"}
         df_c_filtered = df_c_filtered[df_c_filtered['Clean_Phone'].isin(valid_lead_phones)].copy()
 
@@ -459,7 +468,7 @@ if is_ready:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
                     cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
                 
-                fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
+                fig_c = px.line(trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
                                 color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
                 fig_c.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
