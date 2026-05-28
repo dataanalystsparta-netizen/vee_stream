@@ -158,7 +158,7 @@ if is_ready:
     col_table, col_charts = st.columns([4, 5], gap="large")
     
     with col_table:
-        st.markdown('<div class="section-header">Leaderboard Performance (All Statuses)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Leaderboard Performance</div>', unsafe_allow_html=True)
         
         if not df_filtered.empty:
             raw_leaderboard = df_filtered.groupby('Agent').agg(
