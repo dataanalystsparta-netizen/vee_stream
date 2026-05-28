@@ -455,12 +455,12 @@ if is_ready:
 
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'  <div class="breakdown-title">🔍 Operational Breakdown of Cancelled Volume</div>'
+            f'  <div class="breakdown-title">🔍 Breakdown of Cancelled Volume</div>'
             f'  <div class="breakdown-sub-box" style="margin-bottom: 8px;">'
-            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled (Override Node):</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
+            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled:</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
             f'  </div>'
             f'  <div style="border-top: 1px dashed #cbd5e1; margin: 8px 0;"></div>'
-            f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Disallowed Subcategories ({c_pay_cancel:,} Total):</div>'
+            f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Cancelled Subcategories ({c_pay_cancel:,} Total):</div>'
             f'  <div class="breakdown-sub-box">'
             f'      {sub_cat_string}'
             f'  </div>'
