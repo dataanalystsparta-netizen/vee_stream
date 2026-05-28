@@ -6,7 +6,7 @@ import plotly.express as px
 
 # --- 1. SET COMPACT GLOBAL CONFIG ---
 st.set_page_config(
-    page_title="Sparta Telecom Analytics Suite",
+    page_title="Vee Repairs - Dashboard",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
