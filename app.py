@@ -468,7 +468,8 @@ if is_ready:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
                     cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
                 
-                fig_c = px.line(trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
+                # FIXED: Changed df argument from trend_df to c_trend_df
+                fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
                                 color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
                 fig_c.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
