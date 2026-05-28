@@ -29,6 +29,8 @@ st.markdown("""
     .metric-box { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
     .metric-label { font-size: 11px; font-weight: 600; color: #475569 !important; text-transform: uppercase; letter-spacing: 0.5px; }
     .metric-number { font-size: 24px; font-weight: 700; color: #0f172a !important; margin-top: 2px; }
+    .breakdown-strip { background-color: #f1f5f9; border-radius: 8px; padding: 10px 16px; border-left: 4px solid #cbd5e1; margin-bottom: 15px; }
+    .breakdown-item { font-size: 13px; color: #334155; font-weight: 500; }
     .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
     div[data-testid="stTable"] th, div[data-testid="styledDataFrame"] th, .stDataFrame th {
         background-color: #fef08a !important;
@@ -42,13 +44,13 @@ st.markdown("""
 SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
-# Helper to normalize numbers completely (Handles floats like 44.0, formats to clean digits)
+# Helper to normalize numbers completely
 def normalize_phone_string(series):
     return (
         series.astype(str)
         .str.strip()
-        .str.replace(r'\.0$', '', regex=True)  # Remove trailing decimal zero from numeric conversions
-        .str.replace(r'\D', '', regex=True)    # Remove any non-numeric formatting characters
+        .str.replace(r'\.0$', '', regex=True)
+        .str.replace(r'\D', '', regex=True)
     )
 
 # --- 3. ROBUST SPREADSHEET INGEST ENGINE ---
@@ -365,7 +367,7 @@ if is_ready:
                 st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
     # ==========================================
-    # WORKSPACE TAB 3: LEADS CONVERSION STATUS (Root Cause Tracking Updates)
+    # WORKSPACE TAB 3: LEADS CONVERSION STATUS (Granular Layout Rework)
     # ==========================================
     with tab_conversion:
         left_c_filt, right_c_space = st.columns([1, 1])
@@ -383,14 +385,12 @@ if is_ready:
         phone_to_ddisplay = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Day_Display']))
 
         df_c_filtered = df_sales.copy()
-        
-        # Determine explicit root causes for granular tracking
         df_c_filtered['Cancel_Reason'] = 'None'
         
-        # Type 1: Base payment failure / traditional cancel states
+        # Segment 1: Standard Payment Status non-acceptance rules
         df_c_filtered.loc[df_c_filtered['Cleaned_Payment_Status'] == 'Cancelled', 'Cancel_Reason'] = 'Payment Cancelled'
         
-        # Type 2: Welcome Status operational override (WC Cancelled)
+        # Segment 2: Welcome Status operational override (WC Cancelled)
         if 'WlcmStatus' in df_c_filtered.columns:
             wc_cancel_mask = (df_c_filtered['Cleaned_Payment_Status'] == 'Pending') & (df_c_filtered['WlcmStatus'].astype(str).str.strip().str.title() == 'Cancelled')
             df_c_filtered.loc[wc_cancel_mask, 'Cancel_Reason'] = 'WC Cancelled'
@@ -398,7 +398,6 @@ if is_ready:
 
         df_c_filtered['Live_Amount'] = 0.0
         if 'Payment Status' in df_c_filtered.columns:
-            # FIX COMPLETE: Aligned to read from df_c_filtered instead of global df_s block
             df_c_filtered.loc[
                 (df_c_filtered['Payment Status'].astype(str).str.strip().str.lower() == 'accepted') &
                 (df_c_filtered['Cleaned_Payment_Status'] == 'Live'), 
@@ -416,7 +415,7 @@ if is_ready:
         if selected_conv_month != "All Months":
             df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
-        # Consolidated KPIs
+        # Ingestion metrics calculation
         c_status_counts = df_c_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
         c_reason_counts = df_c_filtered['Cancel_Reason'].value_counts().to_dict()
         
@@ -425,11 +424,11 @@ if is_ready:
         c_pend = c_status_counts.get('Pending', 0)
         c_revenue = df_c_filtered['Live_Amount'].sum()
         
-        # Split Cancel Components
         c_pay_cancel = c_reason_counts.get('Payment Cancelled', 0)
         c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
         c_total_cancel = c_pay_cancel + c_wc_cancel
 
+        # --- Tier 1 KPI Cards Panel ---
         cc1, cc2, cc3, cc4, cc5 = st.columns(5)
         cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
         cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,}</div></div>', unsafe_allow_html=True)
@@ -437,16 +436,17 @@ if is_ready:
         cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,}</div></div>', unsafe_allow_html=True)
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
-        # Contextual sub-metrics layer for cancellation reasons
-        sub_c1, sub_c2, sub_c3 = st.columns([2, 2, 1])
-        with sub_c1:
-            st.caption(f"↳ 🚫 **Payment Status Cancelled:** {c_pay_cancel:,} records")
-        with sub_c2:
-            st.caption(f"↳ 📋 **WC Cancelled (Welcome Override):** {c_wc_cancel:,} records")
+        # --- Tier 2: Dedicated Top-Level Root Cause Strip ---
+        st.markdown(
+            f'<div class="breakdown-strip">'
+            f'<span style="font-weight:700; color:#1e293b; font-size:13px; margin-right:15px; text-transform:uppercase; letter-spacing:0.3px;">🔍 Operational Breakdown of Cancelled Volume:</span>'
+            f'<span class="breakdown-item" style="margin-right:25px;">🚫 <b>Payment Status Disallowed:</b> {c_pay_cancel:,} records ({(c_pay_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
+            f'<span class="breakdown-item">📋 <b>WC Cancelled (Welcome Override):</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
+            f'</div>', 
+            unsafe_allow_html=True
+        )
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        col_c_table, col_c_chart = st.columns([10, 9], gap="large")
+        col_c_table, col_c_chart = st.columns([4, 5], gap="large")
         
         with col_c_table:
             st.markdown('<div class="section-header">Conversion Efficiency & Revenue Ledger</div>', unsafe_allow_html=True)
@@ -454,8 +454,7 @@ if is_ready:
                 raw_c_lb = df_c_filtered.groupby('Agent').agg(
                     Total_Sales=('Agent', 'count'),
                     Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
-                    Pay_Cancel=('Cancel_Reason', lambda x: (x == 'Payment Cancelled').sum()),
-                    Wc_Cancel=('Cancel_Reason', lambda x: (x == 'WC Cancelled').sum()),
+                    Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
                     Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
                     Revenue=('Live_Amount', 'sum')
                 ).reset_index().sort_values(by='Total_Sales', ascending=False)
@@ -464,37 +463,34 @@ if is_ready:
                 c_leaderboard['Agent'] = raw_c_lb['Agent']
                 c_leaderboard['Total_Sales'] = raw_c_lb['Total_Sales']
                 
+                # Table column mapping holds consolidated total calculations
                 c_leaderboard['Live'] = raw_c_lb.apply(lambda r: f"{r['Live']} ({(r['Live']/r['Total_Sales'])*100:.1f}%)" if r['Live'] > 0 else "-", axis=1)
-                c_leaderboard['Pay_Cancel'] = raw_c_lb.apply(lambda r: f"{r['Pay_Cancel']} ({(r['Pay_Cancel']/r['Total_Sales'])*100:.1f}%)" if r['Pay_Cancel'] > 0 else "-", axis=1)
-                c_leaderboard['Wc_Cancel'] = raw_c_lb.apply(lambda r: f"{r['Wc_Cancel']} ({(r['Wc_Cancel']/r['Total_Sales'])*100:.1f}%)" if r['Wc_Cancel'] > 0 else "-", axis=1)
+                c_leaderboard['Cancelled'] = raw_c_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
                 c_leaderboard['Pending'] = raw_c_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
                 c_leaderboard['Revenue'] = raw_c_lb['Revenue']
                 
                 tot_c_sum = raw_c_lb['Total_Sales'].sum()
                 tot_c_live = raw_c_lb['Live'].sum()
-                tot_c_pc = raw_c_lb['Pay_Cancel'].sum()
-                tot_c_wc = raw_c_lb['Wc_Cancel'].sum()
+                tot_c_canc = raw_c_lb['Cancelled'].sum()
                 tot_c_pend = raw_c_lb['Pending'].sum()
                 tot_c_rev = raw_c_lb['Revenue'].sum()
                 
                 c_total_row = pd.DataFrame([{
                     'Agent': 'TOTAL', 'Total_Sales': tot_c_sum,
                     'Live': f"{tot_c_live} ({(tot_c_live/tot_c_sum)*100:.1f}%)" if tot_c_live > 0 else "-",
-                    'Pay_Cancel': f"{tot_c_pc} ({(tot_c_pc/tot_c_sum)*100:.1f}%)" if tot_c_pc > 0 else "-",
-                    'Wc_Cancel': f"{tot_c_wc} ({(tot_c_wc/tot_c_sum)*100:.1f}%)" if tot_c_wc > 0 else "-",
+                    'Cancelled': f"{tot_c_canc} ({(tot_c_canc/tot_c_sum)*100:.1f}%)" if tot_c_canc > 0 else "-",
                     'Pending': f"{tot_c_pend} ({(tot_c_pend/tot_c_sum)*100:.1f}%)" if tot_c_pend > 0 else "-",
                     'Revenue': tot_c_rev
                 }])
                 c_leaderboard = pd.concat([c_leaderboard, c_total_row], ignore_index=True)
             else:
-                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Pay_Cancel", "Wc_Cancel", "Pending", "Revenue"])
+                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending", "Revenue"])
 
             st.dataframe(c_leaderboard.reset_index(drop=True), column_config={
                 "Agent": st.column_config.TextColumn("Consultant Name"),
-                "Total_Sales": st.column_config.NumberColumn("Total Sales", format="%d"),
+                "Total_Sales": st.column_config.NumberColumn("Total Converted Leads", format="%d"),
                 "Live": st.column_config.TextColumn("🟢 Live (%)"),
-                "Pay_Cancel": st.column_config.TextColumn("🚫 Pay Cancel (%)"),
-                "Wc_Cancel": st.column_config.TextColumn("📋 WC Cancel (%)"),
+                "Cancelled": st.column_config.TextColumn("🔴 Cancelled (%)"),
                 "Pending": st.column_config.TextColumn("🟡 Pending (%)"),
                 "Revenue": st.column_config.NumberColumn("💰 Live Revenue", format="£%.2f"),
             }, hide_index=True, use_container_width=True, height=400)
@@ -509,7 +505,6 @@ if is_ready:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
                     cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
                 
-                # FIX COMPLETE: Re-linked timeline chart matrix explicitly to c_trend_df boundary
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
                                 color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
