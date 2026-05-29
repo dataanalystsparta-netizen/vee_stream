@@ -298,7 +298,7 @@ if is_ready:
         st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Vee Repairs - lead generation and sales tracker: Updated every hour. Synced directly with the Leads and Sales files.</div>', unsafe_allow_html=True)
         
     with top_btn_col:
-        if st.button("🚪 Disconnect Session", use_container_width=True):
+        if st.button("🚫Logout", use_container_width=True):
             st.session_state["authenticated"] = False
             st.session_state["logged_login"] = False
             st.rerun()
