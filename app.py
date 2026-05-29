@@ -70,7 +70,7 @@ def check_login():
 if not st.session_state["authenticated"]:
     # Display Login Gateway Layout
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-header">Vee Repairs Leads and Sales Tracker</div>', unsafe_allow_html=True)
     st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
     
     with st.form(key="login_gateway_form"):
