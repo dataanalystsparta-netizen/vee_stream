@@ -57,7 +57,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Shared Image URL Resource
-LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/main/vee-lite.41338a6f2148c16bf14a204be23c374f.png"
+LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
 if "authenticated" not in st.session_state:
