@@ -140,7 +140,7 @@ if not st.session_state["authenticated"]:
     _, form_col, _ = st.columns([1, 1.2, 1])
     with form_col:
         with st.form(key="login_gateway_form"):
-            st.text_input("Corporate Email Address", key="login_email", placeholder="name@veerepairs.com")
+            st.text_input("Email Address", key="login_email", placeholder="name@veerepairs.com")
             st.text_input("Security Access Password", type="password", key="login_password", placeholder="••••••••")
             st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
     st.stop()
