@@ -74,8 +74,8 @@ if not st.session_state["authenticated"]:
     st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
     
     with st.form(key="login_gateway_form"):
-        st.text_input("Corporate Email Address", key="login_email", placeholder="name@veerepairs.com")
-        st.text_input("Security Access Password", type="password", key="login_password", placeholder="••••••••")
+        st.text_input("Email Address", key="login_email", placeholder="name@veerepairs.com")
+        st.text_input("Access Password", type="password", key="login_password", placeholder="••••••••")
         st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
         
     st.markdown('</div>', unsafe_allow_html=True)
