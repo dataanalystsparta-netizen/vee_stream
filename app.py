@@ -75,7 +75,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Updated Active Asset Links
-DASHBOARD_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/main/vee-lite.41338a6f2148c16bf14a204be23c374f.png"
+DASHBOARD_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 LOGIN_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
