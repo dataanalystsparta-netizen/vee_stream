@@ -74,7 +74,7 @@ if not st.session_state["authenticated"]:
     with center_col:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         # Centered Login Page Logo
-        st.image(LOGO_URL, use_container_width=True)
+        st.image(LOGO_URL, use_container_width=True,width = 20)
         st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
         
