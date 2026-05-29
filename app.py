@@ -36,8 +36,8 @@ st.markdown("""
     .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
     
     /* Login Screen Specific Styling */
-    .login-container { max-width: 420px; margin: 60px auto; padding: 30px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-bottom: 6px; text-align: center; }
+    .login-container { max-width: 420px; margin: 40px auto; padding: 30px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 15px; margin-bottom: 6px; text-align: center; }
     .login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; text-align: center; }
     
     div[data-testid="stTable"] th, div[data-testid="styledDataFrame"] th, .stDataFrame th {
@@ -48,40 +48,45 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Shared Image URL Resource
+LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/main/vee-lite.41338a6f2148c16bf14a204be23c374f.png"
+
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 def check_login():
     email_input = st.session_state["login_email"].strip().lower()
-    password_input = st.session_state["login_password"]
+    password_input = st.session_state["login_password"].strip()
     
-    # Safely pull users dictionary from secrets
     allowed_users = st.secrets.get("users", {})
     
-    if email_input in allowed_users and allowed_users[email_input] == password_input:
+    if email_input in allowed_users and str(allowed_users[email_input]) == password_input:
         st.session_state["authenticated"] = True
         st.session_state["user_email"] = email_input
-        # Clear sensitive dynamic keys
         del st.session_state["login_password"]
     else:
         st.error("Invalid email pattern or matching verification credentials.")
 
 if not st.session_state["authenticated"]:
-    # Display Login Gateway Layout
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.markdown('<div class="login-header">Vee Repairs Leads and Sales Tracker</div>', unsafe_allow_html=True)
-    st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
-    
-    with st.form(key="login_gateway_form"):
-        st.text_input("Email Address", key="login_email", placeholder="name@veerepairs.com")
-        st.text_input("Access Password", type="password", key="login_password", placeholder="••••••••")
-        st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
+    # Center login column grid layout
+    _, center_col, _ = st.columns([1, 1.2, 1])
+    with center_col:
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        # Centered Login Page Logo
+        st.image(LOGO_URL, use_container_width=True)
+        st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
         
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.stop() # Halts script execution so dashboard metrics stay un-rendered
+        with st.form(key="login_gateway_form"):
+            st.text_input("Corporate Email Address", key="login_email", placeholder="name@veerepairs.com")
+            st.text_input("Security Access Password", type="password", key="login_password", placeholder="••••••••")
+            st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
 
-# --- 4. BACKEND CONSOLE METRIC PROCESSOR (Runs post-login) ---
+# --- 4. BACKEND CONSOLE METRIC PROCESSOR (Post-Login) ---
 SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
@@ -222,16 +227,20 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    # Top Action Row with user greeting and Logout Option
-    top_u1, top_u2 = st.columns([8, 2])
-    with top_u2:
+    # Dashboard Top Header Alignment
+    top_logo_col, top_title_col, top_btn_col = st.columns([1, 7, 2])
+    
+    with top_logo_col:
+        st.image(LOGO_URL, use_container_width=True)
+        
+    with top_title_col:
+        st.markdown('<div class="main-title" style="margin-top:-5px;">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Real-time workspace monitor context.</div>', unsafe_allow_html=True)
+        
+    with top_btn_col:
         if st.button("🚪 Disconnect Session", use_container_width=True):
             st.session_state["authenticated"] = False
             st.rerun()
-            
-    with top_u1:
-        st.markdown('<div class="main-title">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Real-time workspace monitor context.</div>', unsafe_allow_html=True)
 
     tab_leads, tab_sales, tab_conversion = st.tabs([
         "📊 Leads Quality Breakdown", 
