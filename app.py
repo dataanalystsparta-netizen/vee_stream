@@ -1,12 +1,3 @@
-Ah, seeing both images makes the issue perfectly clear.
-
-That persistent white rectangle on top isn't coming from our HTML card—it is **Streamlit's native, empty page-title area** that it creates automatically when `st.title()` isn't used quite right with layout columns, or when an empty element renders inside a form block.
-
-To completely banish that rectangle, bypass the layout bugs, and ensure the new logo (`vee.png`) is flawlessly centered, we need to handle the login form entirely in clean, native HTML/CSS using a single `st.markdown` block. Then, we look for the form submit event using standard Streamlit components hidden underneath.
-
-Here is the fully corrected, complete script.
-
-```python
 import streamlit as st
 import pandas as pd
 import gspread
@@ -663,5 +654,3 @@ if is_ready:
                 st.plotly_chart(fig_c, use_container_width=True, config={'displayModeBar': False})
             else:
                 st.info("No converted leads found for this month filter.")
-
-```
