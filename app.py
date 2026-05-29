@@ -295,7 +295,7 @@ if is_ready:
         
     with top_title_col:
         st.markdown('<div class="main-title" style="margin-top:-5px;">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Real-time workspace monitor context.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Vee Repairs - lead generation and sales tracker: Updated every hour. Synced directly with the Leads and Sales files.</div>', unsafe_allow_html=True)
         
     with top_btn_col:
         if st.button("🚪 Disconnect Session", use_container_width=True):
