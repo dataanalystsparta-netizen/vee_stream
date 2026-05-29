@@ -49,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Shared Image URL Resource
-LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
+LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/main/vee-lite.41338a6f2148c16bf14a204be23c374f.png"
 
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
 if "authenticated" not in st.session_state:
@@ -73,8 +73,10 @@ if not st.session_state["authenticated"]:
     _, center_col, _ = st.columns([1, 1.2, 1])
     with center_col:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        # Centered Login Page Logo
-        st.image(LOGO_URL, use_container_width=True,width = 20)
+        
+        # Centered Login Page Logo (~1 Inch / 100px Width)
+        st.image(LOGO_URL, width=100)
+        
         st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
         
@@ -227,11 +229,12 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    # Dashboard Top Header Alignment
-    top_logo_col, top_title_col, top_btn_col = st.columns([1, 7, 2])
+    # Dashboard Top Header Alignment with Tighter Proportions
+    top_logo_col, top_title_col, top_btn_col = st.columns([0.6, 7.4, 2])
     
     with top_logo_col:
-        st.image(LOGO_URL, use_container_width=True)
+        # Dashboard Logo (~0.7 Inches / 70px Width)
+        st.image(LOGO_URL, width=70)
         
     with top_title_col:
         st.markdown('<div class="main-title" style="margin-top:-5px;">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
@@ -513,7 +516,9 @@ if is_ready:
         c_revenue = df_c_filtered['Live_Amount'].sum()
         
         c_pay_cancel = c_reason_counts.get('Payment Cancelled', 0)
-        c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
+        c_wc_cancel = c_reason_counts.get('Welcome Call Cancelled', 0) # Fallback handling string update
+        if c_wc_cancel == 0 and 'WC Cancelled' in c_reason_counts:
+            c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
         c_total_cancel = c_pay_cancel + c_wc_cancel
 
         pc_live = (c_live / c_total * 100) if c_total > 0 else 0
@@ -536,7 +541,7 @@ if is_ready:
                 pct = (count / c_pay_cancel * 100) if c_pay_cancel > 0 else 0
                 c_sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
         
-        c_sub_cat_string = " ".join(c_sub_html_items) if c_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
+        c_sub_cat_string = " ".join(c_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
