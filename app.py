@@ -35,8 +35,16 @@ st.markdown("""
     .breakdown-item { font-size: 13px; color: #334155; font-weight: 500; background: #ffffff; padding: 3px 10px; border-radius: 4px; border: 1px solid #e2e8f0; }
     .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
     
-    /* Login Screen Specific Styling */
-    .login-container { max-width: 420px; margin: 40px auto; padding: 30px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    /* Login Screen Specific Card Styling */
+    .login-card { 
+        max-width: 420px; 
+        margin: 60px auto 20px auto; 
+        padding: 30px; 
+        background: #ffffff; 
+        border-radius: 12px; 
+        border: 1px solid #e2e8f0; 
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
+    }
     .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 15px; margin-bottom: 6px; text-align: center; }
     .login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; text-align: center; }
     
@@ -49,7 +57,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Shared Image URL Resource
-LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
+LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/main/vee-lite.41338a6f2148c16bf14a204be23c374f.png"
 
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
 if "authenticated" not in st.session_state:
@@ -69,13 +77,17 @@ def check_login():
         st.error("Invalid email pattern or matching verification credentials.")
 
 if not st.session_state["authenticated"]:
-    # Center login column grid layout
-    _, center_col, _ = st.columns([1, 1.2, 1])
+    # Structural layout columns to position the login card centered on screen
+    _, center_col, _ = st.columns([1, 1.3, 1])
+    
     with center_col:
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        # Unified card styling container block
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
         
-        # Centered Login Page Logo (~1 Inch / 100px Width)
-        st.image(LOGO_URL, width=100)
+        # Grid layout to flawlessly center-align the login page logo (~1 Inch / 100px Width)
+        _, logo_center_col, _ = st.columns([1, 1, 1])
+        with logo_center_col:
+            st.image(LOGO_URL, width=100)
         
         st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
         st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
@@ -516,7 +528,7 @@ if is_ready:
         c_revenue = df_c_filtered['Live_Amount'].sum()
         
         c_pay_cancel = c_reason_counts.get('Payment Cancelled', 0)
-        c_wc_cancel = c_reason_counts.get('Welcome Call Cancelled', 0) # Fallback handling string update
+        c_wc_cancel = c_reason_counts.get('Welcome Call Cancelled', 0) 
         if c_wc_cancel == 0 and 'WC Cancelled' in c_reason_counts:
             c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
         c_total_cancel = c_pay_cancel + c_wc_cancel
