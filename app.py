@@ -131,8 +131,8 @@ if not st.session_state["authenticated"]:
                 <div class="logo-container">
                     <img src="{LOGIN_LOGO_URL}" width="100" style="display: block; margin: 0 auto;">
                 </div>
-                <div class="login-header">Vee Repairs Core Console</div>
-                <div class="login-subtitle">Please sign in to access protected data matrices</div>
+                <div class="login-header">Vee Repairs Leads and Sales tracker</div>
+                <div class="login-subtitle">Please sign in to access data matrices</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
