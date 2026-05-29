@@ -34,6 +34,12 @@ st.markdown("""
     .breakdown-sub-box { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
     .breakdown-item { font-size: 13px; color: #334155; font-weight: 500; background: #ffffff; padding: 3px 10px; border-radius: 4px; border: 1px solid #e2e8f0; }
     .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
+    
+    /* Login Screen Specific Styling */
+    .login-container { max-width: 420px; margin: 60px auto; padding: 30px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-bottom: 6px; text-align: center; }
+    .login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; text-align: center; }
+    
     div[data-testid="stTable"] th, div[data-testid="styledDataFrame"] th, .stDataFrame th {
         background-color: #fef08a !important;
         color: #1e293b !important;
@@ -42,11 +48,43 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Shared Data Node Ingestion Config
+# --- 3. SECURE AUTHENTICATION SYSTEM ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+def check_login():
+    email_input = st.session_state["login_email"].strip().lower()
+    password_input = st.session_state["login_password"]
+    
+    # Safely pull users dictionary from secrets
+    allowed_users = st.secrets.get("users", {})
+    
+    if email_input in allowed_users and allowed_users[email_input] == password_input:
+        st.session_state["authenticated"] = True
+        st.session_state["user_email"] = email_input
+        # Clear sensitive dynamic keys
+        del st.session_state["login_password"]
+    else:
+        st.error("Invalid email pattern or matching verification credentials.")
+
+if not st.session_state["authenticated"]:
+    # Display Login Gateway Layout
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
+    
+    with st.form(key="login_gateway_form"):
+        st.text_input("Corporate Email Address", key="login_email", placeholder="name@veerepairs.com")
+        st.text_input("Security Access Password", type="password", key="login_password", placeholder="••••••••")
+        st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop() # Halts script execution so dashboard metrics stay un-rendered
+
+# --- 4. BACKEND CONSOLE METRIC PROCESSOR (Runs post-login) ---
 SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
-# Helper to normalize numbers completely
 def normalize_phone_string(series):
     return (
         series.astype(str)
@@ -55,7 +93,6 @@ def normalize_phone_string(series):
         .str.replace(r'\D', '', regex=True)
     )
 
-# --- 3. ROBUST SPREADSHEET INGEST ENGINE ---
 @st.cache_data(ttl=60)
 def fetch_dashboard_data():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -185,8 +222,16 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    st.markdown('<div class="main-title">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Real-time synced dashboard for Vee Repairs containing Agent wise and month wise leads generated, quality status, sales converted etc.</div>', unsafe_allow_html=True)
+    # Top Action Row with user greeting and Logout Option
+    top_u1, top_u2 = st.columns([8, 2])
+    with top_u2:
+        if st.button("🚪 Disconnect Session", use_container_width=True):
+            st.session_state["authenticated"] = False
+            st.rerun()
+            
+    with top_u1:
+        st.markdown('<div class="main-title">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Real-time workspace monitor context.</div>', unsafe_allow_html=True)
 
     tab_leads, tab_sales, tab_conversion = st.tabs([
         "📊 Leads Quality Breakdown", 
@@ -220,7 +265,6 @@ if is_ready:
         l_rej = l_quality_counts.get('Rejected', 0)
         l_pen = l_quality_counts.get('Pending', 0)
 
-        # Calculate percentages safely
         p_app = (l_app / l_total * 100) if l_total > 0 else 0
         p_rej = (l_rej / l_total * 100) if l_total > 0 else 0
         p_pen = (l_pen / l_total * 100) if l_total > 0 else 0
@@ -321,19 +365,16 @@ if is_ready:
         s_wc_cancel = s_reason_counts.get('WC Cancelled', 0)
         s_total_cancel = s_pay_cancel + s_wc_cancel
 
-        # Calculate percentages safely
         ps_live = (s_live / s_total * 100) if s_total > 0 else 0
         ps_canc = (s_total_cancel / s_total * 100) if s_total > 0 else 0
         ps_pend = (s_pend / s_total * 100) if s_total > 0 else 0
 
-        # --- KPI Panels ---
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Logged Sales</div><div class="metric-number">{s_total:,}</div></div>', unsafe_allow_html=True)
         sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
         sc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{s_total_cancel:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_canc:.1f}%)</span></div></div>', unsafe_allow_html=True)
         sc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Review</div><div class="metric-number" style="color:#ca8a04;">{s_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
 
-        # --- Cancellation Breakdown Strip ---
         df_s_disallowed_only = df_s_filtered[df_s_filtered['Cancel_Reason'] == 'Payment Cancelled']
         s_sub_cat_counts = df_s_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -454,7 +495,6 @@ if is_ready:
         if selected_conv_month != "All Months":
             df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
-        # Ingestion metrics calculation
         c_status_counts = df_c_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
         c_reason_counts = df_c_filtered['Cancel_Reason'].value_counts().to_dict()
         
@@ -467,12 +507,10 @@ if is_ready:
         c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
         c_total_cancel = c_pay_cancel + c_wc_cancel
 
-        # Calculate percentages safely
         pc_live = (c_live / c_total * 100) if c_total > 0 else 0
         pc_canc = (c_total_cancel / c_total * 100) if c_total > 0 else 0
         pc_pend = (c_pend / c_total * 100) if c_total > 0 else 0
 
-        # --- KPI Cards Panel ---
         cc1, cc2, cc3, cc4, cc5 = st.columns(5)
         cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
         cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
@@ -480,7 +518,6 @@ if is_ready:
         cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
-        # --- Cancellation Breakdown Strip ---
         df_c_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
         c_sub_cat_counts = df_c_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
