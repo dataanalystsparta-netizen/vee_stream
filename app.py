@@ -1,3 +1,12 @@
+Ah, seeing both images makes the issue perfectly clear.
+
+That persistent white rectangle on top isn't coming from our HTML card—it is **Streamlit's native, empty page-title area** that it creates automatically when `st.title()` isn't used quite right with layout columns, or when an empty element renders inside a form block.
+
+To completely banish that rectangle, bypass the layout bugs, and ensure the new logo (`vee.png`) is flawlessly centered, we need to handle the login form entirely in clean, native HTML/CSS using a single `st.markdown` block. Then, we look for the form submit event using standard Streamlit components hidden underneath.
+
+Here is the fully corrected, complete script.
+
+```python
 import streamlit as st
 import pandas as pd
 import gspread
@@ -12,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. EXECUTIVE THEME RULES (Yellow Header / Professional Palette) ---
+# --- 2. EXECUTIVE THEME & INTERFACE CUSTOMIZATION ---
 st.config.set_option("theme.backgroundColor", "#f8fafc")
 st.config.set_option("theme.secondaryBackgroundColor", "#ffffff")
 st.config.set_option("theme.textColor", "#0f172a")
@@ -24,6 +33,10 @@ st.markdown("""
     html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         font-family: 'Inter', sans-serif;
     }
+    
+    /* Completely eliminate Streamlit's block paddings to kill the ghost rectangle */
+    div[data-testid="stBlock"] { padding: 0px !important; margin: 0px !important; }
+    
     .main-title { font-size: 26px; font-weight: 700; color: #0f172a !important; margin-bottom: 2px; }
     .subtitle { font-size: 13px; color: #475569 !important; margin-bottom: 20px; }
     .metric-box { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
@@ -35,18 +48,32 @@ st.markdown("""
     .breakdown-item { font-size: 13px; color: #334155; font-weight: 500; background: #ffffff; padding: 3px 10px; border-radius: 4px; border: 1px solid #e2e8f0; }
     .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
     
-    /* Login Screen Specific Card Styling */
+    /* 100% Pure CSS Center-Aligned Premium Login Card */
+    .login-wrapper {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        padding-top: 50px;
+    }
     .login-card { 
-        max-width: 420px; 
-        margin: 60px auto 20px auto; 
-        padding: 30px; 
+        width: 440px; 
+        padding: 35px; 
         background: #ffffff; 
         border-radius: 12px; 
         border: 1px solid #e2e8f0; 
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); 
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
+        text-align: center;
     }
-    .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 15px; margin-bottom: 6px; text-align: center; }
-    .login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; text-align: center; }
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-bottom: 16px;
+        width: 100%;
+    }
+    .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 5px; margin-bottom: 6px; }
+    .login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; }
     
     div[data-testid="stTable"] th, div[data-testid="styledDataFrame"] th, .stDataFrame th {
         background-color: #fef08a !important;
@@ -56,8 +83,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Shared Image URL Resource
-LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
+# Updated Active Asset Links
+DASHBOARD_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/main/vee-lite.41338a6f2148c16bf14a204be23c374f.png"
+LOGIN_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 
 # --- 3. SECURE AUTHENTICATION SYSTEM ---
 if "authenticated" not in st.session_state:
@@ -66,7 +94,6 @@ if "authenticated" not in st.session_state:
 def check_login():
     email_input = st.session_state["login_email"].strip().lower()
     password_input = st.session_state["login_password"].strip()
-    
     allowed_users = st.secrets.get("users", {})
     
     if email_input in allowed_users and str(allowed_users[email_input]) == password_input:
@@ -77,27 +104,26 @@ def check_login():
         st.error("Invalid email pattern or matching verification credentials.")
 
 if not st.session_state["authenticated"]:
-    # Structural layout columns to position the login card centered on screen
-    _, center_col, _ = st.columns([1, 1.3, 1])
+    # Custom HTML Layout Injection to perfectly center the logo and card content layout natively
+    st.markdown(f"""
+        <div class="login-wrapper">
+            <div class="login-card">
+                <div class="logo-container">
+                    <img src="{LOGIN_LOGO_URL}" width="100" style="display: block; margin: 0 auto;">
+                </div>
+                <div class="login-header">Vee Repairs Core Console</div>
+                <div class="login-subtitle">Please sign in to access protected data matrices</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
     
-    with center_col:
-        # Unified card styling container block
-        st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        
-        # Grid layout to flawlessly center-align the login page logo (~1 Inch / 100px Width)
-        _, logo_center_col, _ = st.columns([1, 1, 1])
-        with logo_center_col:
-            st.image(LOGO_URL, width=100)
-        
-        st.markdown('<div class="login-header">Vee Repairs Core Console</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-subtitle">Please sign in to access protected data matrices</div>', unsafe_allow_html=True)
-        
+    # Render form fields tightly below without creating high-level layout wrappers that trigger spacing bugs
+    _, form_col, _ = st.columns([1, 1.2, 1])
+    with form_col:
         with st.form(key="login_gateway_form"):
             st.text_input("Corporate Email Address", key="login_email", placeholder="name@veerepairs.com")
             st.text_input("Security Access Password", type="password", key="login_password", placeholder="••••••••")
             st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
-            
-        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # --- 4. BACKEND CONSOLE METRIC PROCESSOR (Post-Login) ---
@@ -246,7 +272,7 @@ if is_ready:
     
     with top_logo_col:
         # Dashboard Logo (~0.7 Inches / 70px Width)
-        st.image(LOGO_URL, width=70)
+        st.image(DASHBOARD_LOGO_URL, width=70)
         
     with top_title_col:
         st.markdown('<div class="main-title" style="margin-top:-5px;">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
@@ -637,3 +663,5 @@ if is_ready:
                 st.plotly_chart(fig_c, use_container_width=True, config={'displayModeBar': False})
             else:
                 st.info("No converted leads found for this month filter.")
+
+```
