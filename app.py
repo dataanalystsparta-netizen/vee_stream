@@ -362,7 +362,7 @@ if is_ready:
             }, hide_index=True, use_container_width=True, height=400)
 
         with col_l_chart:
-            st.markdown('<div class="section-header">Allocation Quality Trend Lines</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Leads Quality Trend</div>', unsafe_allow_html=True)
             if not df_l_filtered.empty:
                 if selected_lead_month != "All Months":
                     trend_df = df_l_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
