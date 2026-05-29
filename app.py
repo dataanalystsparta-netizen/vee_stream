@@ -122,7 +122,6 @@ def fetch_dashboard_data():
     else:
         df_s['Parsed_Amount'] = 0.0
 
-    # Process core metrics & capture granular operational flags safely
     df_s['Cancel_Reason'] = 'None'
     df_s['Disallowed_Subcategory'] = 'None'
 
@@ -136,7 +135,6 @@ def fetch_dashboard_data():
         df_s.loc[blank_mask, 'Cleaned_Payment_Status'] = 'Pending'
         df_s.loc[accepted_mask, 'Cleaned_Payment_Status'] = 'Live'
         
-        # Segment 1 Cancel Reason: Base payment disallowance rules
         is_cancelled_mask = df_s['Cleaned_Payment_Status'] == 'Cancelled'
         df_s.loc[is_cancelled_mask, 'Cancel_Reason'] = 'Payment Cancelled'
         df_s.loc[is_cancelled_mask, 'Disallowed_Subcategory'] = df_s.loc[is_cancelled_mask, 'Raw_Payment_Status']
@@ -144,7 +142,6 @@ def fetch_dashboard_data():
         df_s['Raw_Payment_Status'] = 'Pending'
         df_s['Cleaned_Payment_Status'] = 'Pending'
 
-    # Segment 2 Cancel Reason: Welcome Call status override logic node
     if 'WlcmStatus' in df_s.columns:
         wc_cancel_mask = (df_s['Cleaned_Payment_Status'] == 'Pending') & (df_s['WlcmStatus'].astype(str).str.strip().str.title() == 'Cancelled')
         df_s.loc[wc_cancel_mask, 'Cancel_Reason'] = 'WC Cancelled'
@@ -223,11 +220,16 @@ if is_ready:
         l_rej = l_quality_counts.get('Rejected', 0)
         l_pen = l_quality_counts.get('Pending', 0)
 
+        # Calculate percentages safely
+        p_app = (l_app / l_total * 100) if l_total > 0 else 0
+        p_rej = (l_rej / l_total * 100) if l_total > 0 else 0
+        p_pen = (l_pen / l_total * 100) if l_total > 0 else 0
+
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f'<div class="metric-box"><div class="metric-label">Total Allocated</div><div class="metric-number">{l_total:,}</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Approved</div><div class="metric-number" style="color:#16a34a;">{l_app:,}</div></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Rejected</div><div class="metric-number" style="color:#dc2626;">{l_rej:,}</div></div>', unsafe_allow_html=True)
-        c4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Threshold</div><div class="metric-number" style="color:#ca8a04;">{l_pen:,}</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Approved</div><div class="metric-number" style="color:#16a34a;">{l_app:,} <span style="font-size:14px; font-weight:500; color:#475569;">({p_app:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Rejected</div><div class="metric-number" style="color:#dc2626;">{l_rej:,} <span style="font-size:14px; font-weight:500; color:#475569;">({p_rej:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        c4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Threshold</div><div class="metric-number" style="color:#ca8a04;">{l_pen:,} <span style="font-size:14px; font-weight:500; color:#475569;">({p_pen:.1f}%)</span></div></div>', unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -293,7 +295,7 @@ if is_ready:
                 st.plotly_chart(fig_l, use_container_width=True, config={'displayModeBar': False})
 
     # ==========================================
-    # WORKSPACE TAB 2: SALES TRACKER ENGINE (With Breakdown Update)
+    # WORKSPACE TAB 2: SALES TRACKER ENGINE 
     # ==========================================
     with tab_sales:
         left_s_filt, right_s_space = st.columns([1, 1])
@@ -302,7 +304,7 @@ if is_ready:
                 [m for m in df_sales['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
                 key=lambda x: pd.to_datetime(x, format='%b %Y')
             )
-            selected_sales_month = st.selectbox("Sales Processing Window", ["All Months"] + valid_sales_months, key="sales_mth_filter")
+            selected_sales_month = st.selectbox("Sales Month Filter", ["All Months"] + valid_sales_months, key="sales_mth_filter")
 
         df_s_filtered = df_sales.copy()
         if selected_sales_month != "All Months":
@@ -319,14 +321,19 @@ if is_ready:
         s_wc_cancel = s_reason_counts.get('WC Cancelled', 0)
         s_total_cancel = s_pay_cancel + s_wc_cancel
 
+        # Calculate percentages safely
+        ps_live = (s_live / s_total * 100) if s_total > 0 else 0
+        ps_canc = (s_total_cancel / s_total * 100) if s_total > 0 else 0
+        ps_pend = (s_pend / s_total * 100) if s_total > 0 else 0
+
         # --- KPI Panels ---
         sc1, sc2, sc3, sc4 = st.columns(4)
         sc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Logged Sales</div><div class="metric-number">{s_total:,}</div></div>', unsafe_allow_html=True)
-        sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,}</div></div>', unsafe_allow_html=True)
-        sc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{s_total_cancel:,}</div></div>', unsafe_allow_html=True)
-        sc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Review</div><div class="metric-number" style="color:#ca8a04;">{s_pend:,}</div></div>', unsafe_allow_html=True)
+        sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        sc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{s_total_cancel:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_canc:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        sc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Review</div><div class="metric-number" style="color:#ca8a04;">{s_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
 
-        # --- Executive Cancellation Breakdown Strip ---
+        # --- Cancellation Breakdown Strip ---
         df_s_disallowed_only = df_s_filtered[df_s_filtered['Cancel_Reason'] == 'Payment Cancelled']
         s_sub_cat_counts = df_s_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -336,11 +343,11 @@ if is_ready:
                 pct = (count / s_pay_cancel * 100) if s_pay_cancel > 0 else 0
                 s_sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
         
-        s_sub_cat_string = " ".join(s_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No distinct category sub-metrics discovered</span>'
+        s_sub_cat_string = " ".join(s_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'  <div class="breakdown-title">🔍 Operational Breakdown of Cancelled Volume</div>'
+            f'  <div class="breakdown-title">🔍 Cancellation Reason Breakdown</div>'
             f'  <div class="breakdown-sub-box" style="margin-bottom: 8px;">'
             f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled:</b> {s_wc_cancel:,} records ({(s_wc_cancel/s_total_cancel*100 if s_total_cancel > 0 else 0):.1f}%)</span>'
             f'  </div>'
@@ -358,7 +365,7 @@ if is_ready:
         col_s_table, col_s_chart = st.columns([4, 5], gap="large")
         
         with col_s_table:
-            st.markdown('<div class="section-header">Agent Processing Performance Matrix</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Agent Sales Performance Matrix</div>', unsafe_allow_html=True)
             if not df_s_filtered.empty:
                 raw_s_lb = df_s_filtered.groupby('Agent').agg(
                     Total_Sales=('Agent', 'count'),
@@ -399,7 +406,7 @@ if is_ready:
             }, hide_index=True, use_container_width=True, height=400)
             
         with col_s_chart:
-            st.markdown('<div class="section-header">Sales Volume Operational Line Trends</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Sales Performance Trends</div>', unsafe_allow_html=True)
             if not df_s_filtered.empty:
                 if selected_sales_month != "All Months":
                     s_trend_df = df_s_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
@@ -426,7 +433,7 @@ if is_ready:
                 [m for m in df_leads['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
                 key=lambda x: pd.to_datetime(x, format='%b %Y')
             )
-            selected_conv_month = st.selectbox("Conversion Timeline Window (Lead Month)", ["All Months"] + valid_conv_months, key="conv_mth_filter")
+            selected_conv_month = st.selectbox("Lead Month Filter", ["All Months"] + valid_conv_months, key="conv_mth_filter")
 
         phone_lead_meta = df_leads.dropna(subset=['Clean_Phone']).drop_duplicates(subset=['Clean_Phone'])
         phone_to_month = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Month_Display']))
@@ -460,15 +467,20 @@ if is_ready:
         c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
         c_total_cancel = c_pay_cancel + c_wc_cancel
 
-        # --- Tier 1 KPI Cards Panel ---
+        # Calculate percentages safely
+        pc_live = (c_live / c_total * 100) if c_total > 0 else 0
+        pc_canc = (c_total_cancel / c_total * 100) if c_total > 0 else 0
+        pc_pend = (c_pend / c_total * 100) if c_total > 0 else 0
+
+        # --- KPI Cards Panel ---
         cc1, cc2, cc3, cc4, cc5 = st.columns(5)
         cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
-        cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,}</div></div>', unsafe_allow_html=True)
-        cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_total_cancel:,}</div></div>', unsafe_allow_html=True)
-        cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,}</div></div>', unsafe_allow_html=True)
+        cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_total_cancel:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_canc:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
-        # --- Tier 2: Deep Component Operational Review Panel ---
+        # --- Cancellation Breakdown Strip ---
         df_c_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
         c_sub_cat_counts = df_c_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -478,13 +490,13 @@ if is_ready:
                 pct = (count / c_pay_cancel * 100) if c_pay_cancel > 0 else 0
                 c_sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
         
-        c_sub_cat_string = " ".join(c_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
+        c_sub_cat_string = " ".join(c_sub_html_items) if c_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'  <div class="breakdown-title">🔍 Operational Breakdown of Cancelled Volume</div>'
+            f'  <div class="breakdown-title">🔍 Cancellation Reason Breakdown</div>'
             f'  <div class="breakdown-sub-box" style="margin-bottom: 8px;">'
-            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled (Override Node):</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
+            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled:</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
             f'  </div>'
             f'  <div style="border-top: 1px dashed #cbd5e1; margin: 8px 0;"></div>'
             f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Cancelled Subcategories ({c_pay_cancel:,} Total):</div>'
@@ -498,7 +510,7 @@ if is_ready:
         col_c_table, col_c_chart = st.columns([4, 5], gap="large")
         
         with col_c_table:
-            st.markdown('<div class="section-header">Conversion Efficiency & Revenue Ledger</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Agent Conversion & Revenue Summary</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
                 raw_c_lb = df_c_filtered.groupby('Agent').agg(
                     Total_Sales=('Agent', 'count'),
@@ -544,14 +556,14 @@ if is_ready:
             }, hide_index=True, use_container_width=True, height=400)
             
         with col_c_chart:
-            st.markdown('<div class="section-header">Cross-Matched Lead Velocity Trends</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Lead Conversion Over Time</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
                 if selected_conv_month != "All Months":
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Date', 'Lead_Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Date')
-                    cx_col, cx_lbl = 'Lead_Day_Display', 'Date (Lead Timeline)'
+                    cx_col, cx_lbl = 'Lead_Day_Display', 'Date'
                 else:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
-                    cx_col, cx_lbl = 'Lead_Month_Display', 'Month Block (Lead Timeline)'
+                    cx_col, cx_lbl = 'Lead_Month_Display', 'Month'
                 
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
@@ -561,4 +573,4 @@ if is_ready:
                                     legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
                 st.plotly_chart(fig_c, use_container_width=True, config={'displayModeBar': False})
             else:
-                st.info("No converted lead phone numbers found for this timeline slice.")
+                st.info("No converted leads found for this month filter.")
