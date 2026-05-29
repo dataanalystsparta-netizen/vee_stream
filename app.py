@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
+from datetime import datetime
 
 # --- 1. SET COMPACT GLOBAL CONFIG ---
 st.set_page_config(
@@ -78,9 +79,37 @@ st.markdown("""
 DASHBOARD_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 LOGIN_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 
-# --- 3. SECURE AUTHENTICATION SYSTEM ---
+# Workbook Config
+SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+
+# --- 3. SECURE AUTHENTICATION & AUDIT TRAIL LOG SYSTEM ---
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
+if "logged_login" not in st.session_state:
+    st.session_state["logged_login"] = False
+
+def log_login_event(email):
+    """Appends identity, accurate timestamp, and context to the spreadsheet logs worksheet."""
+    try:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.authorize(creds)
+        ss = client.open_by_key(SHEET_ID)
+        
+        # Accessing the logins worksheet (Matches your target GID workspace)
+        try:
+            log_sheet = ss.worksheet('logins')
+        except gspread.exceptions.WorksheetNotFound:
+            # Fallback creation if sheet missing, using clean headers
+            log_sheet = ss.add_worksheet(title='logins', rows='100', cols='3')
+            log_sheet.append_row(['Timestamp', 'User Corporate Email', 'Activity Profile Status'])
+            
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_sheet.append_row([current_time, email, 'Login Success'])
+    except Exception as log_error:
+        # Failsafe protection so audit failure doesn't lock users completely out of the UI
+        pass
 
 def check_login():
     email_input = st.session_state["login_email"].strip().lower()
@@ -95,7 +124,7 @@ def check_login():
         st.error("Invalid email pattern or matching verification credentials.")
 
 if not st.session_state["authenticated"]:
-    # Custom HTML Layout Injection to perfectly center the logo and card content layout natively
+    st.session_state["logged_login"] = False  # Reset on sign-out state
     st.markdown(f"""
         <div class="login-wrapper">
             <div class="login-card">
@@ -108,7 +137,6 @@ if not st.session_state["authenticated"]:
         </div>
     """, unsafe_allow_html=True)
     
-    # Render form fields tightly below without creating high-level layout wrappers that trigger spacing bugs
     _, form_col, _ = st.columns([1, 1.2, 1])
     with form_col:
         with st.form(key="login_gateway_form"):
@@ -117,10 +145,12 @@ if not st.session_state["authenticated"]:
             st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
     st.stop()
 
-# --- 4. BACKEND CONSOLE METRIC PROCESSOR (Post-Login) ---
-SHEET_ID = '1dUqj3sp5Jva_nYjMzPyGAM6wwNfFINF6IRj5Z94FScU'
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+# Trigger structured logging process once verified
+if st.session_state["authenticated"] and not st.session_state["logged_login"]:
+    log_login_event(st.session_state["user_email"])
+    st.session_state["logged_login"] = True
 
+# --- 4. BACKEND CONSOLE METRIC PROCESSOR (Post-Login) ---
 def normalize_phone_string(series):
     return (
         series.astype(str)
@@ -258,11 +288,9 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    # Dashboard Top Header Alignment with Tighter Proportions
     top_logo_col, top_title_col, top_btn_col = st.columns([0.6, 7.4, 2])
     
     with top_logo_col:
-        # Dashboard Logo (~0.7 Inches / 70px Width)
         st.image(DASHBOARD_LOGO_URL, width=70)
         
     with top_title_col:
@@ -272,6 +300,7 @@ if is_ready:
     with top_btn_col:
         if st.button("🚪 Disconnect Session", use_container_width=True):
             st.session_state["authenticated"] = False
+            st.session_state["logged_login"] = False
             st.rerun()
 
     tab_leads, tab_sales, tab_conversion = st.tabs([
