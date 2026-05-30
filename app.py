@@ -329,11 +329,21 @@ if is_ready:
         if selected_lead_month != "All Months":
             df_l_filtered = df_l_filtered[df_l_filtered['Month_Display'] == selected_lead_month]
 
-        l_quality_counts = df_l_filtered['Cleaned_Quality_Status'].value_counts().to_dict()
-        l_total = len(df_l_filtered)
-        l_app = l_quality_counts.get('Approved', 0)
-        l_rej = l_quality_counts.get('Rejected', 0)
-        l_pen = l_quality_counts.get('Pending', 0)
+        # In case matrix calculations are completely blank
+        if not df_l_filtered.empty:
+            raw_l_lb = df_l_filtered.groupby('Agent').agg(
+                Total_Leads=('Agent', 'count'),
+                Approved=('Cleaned_Quality_Status', lambda x: (x == 'Approved').sum()),
+                Rejected=('Cleaned_Quality_Status', lambda x: (x == 'Rejected').sum()),
+                Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
+            ).reset_index().sort_values(by='Total_Leads', ascending=False)
+            
+            l_total = raw_l_lb['Total_Leads'].sum()
+            l_app = raw_l_lb['Approved'].sum()
+            l_rej = raw_l_lb['Rejected'].sum()
+            l_pen = raw_l_lb['Pending'].sum()
+        else:
+            l_total, l_app, l_rej, l_pen = 0, 0, 0, 0
 
         p_app = (l_app / l_total * 100) if l_total > 0 else 0
         p_rej = (l_rej / l_total * 100) if l_total > 0 else 0
@@ -352,13 +362,6 @@ if is_ready:
         with col_l_table:
             st.markdown('<div class="section-header">Branch Distribution Matrix</div>', unsafe_allow_html=True)
             if not df_l_filtered.empty:
-                raw_l_lb = df_l_filtered.groupby('Agent').agg(
-                    Total_Leads=('Agent', 'count'),
-                    Approved=('Cleaned_Quality_Status', lambda x: (x == 'Approved').sum()),
-                    Rejected=('Cleaned_Quality_Status', lambda x: (x == 'Rejected').sum()),
-                    Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
-                ).reset_index().sort_values(by='Total_Leads', ascending=False)
-                
                 l_leaderboard = pd.DataFrame()
                 l_leaderboard['Agent'] = raw_l_lb['Agent']
                 l_leaderboard['Total_Leads'] = raw_l_lb['Total_Leads']
@@ -367,16 +370,11 @@ if is_ready:
                 l_leaderboard['Rejected'] = raw_l_lb.apply(lambda r: f"{r['Rejected']} ({(r['Rejected']/r['Total_Leads'])*100:.1f}%)" if r['Rejected'] > 0 else "-", axis=1)
                 l_leaderboard['Pending'] = raw_l_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Leads'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
                 
-                tot_l_sum = raw_l_lb['Total_Leads'].sum()
-                tot_l_app = raw_l_lb['Approved'].sum()
-                tot_l_rej = raw_l_lb['Rejected'].sum()
-                tot_l_pen = raw_l_lb['Pending'].sum()
-                
                 l_total_row = pd.DataFrame([{
-                    'Agent': 'TOTAL', 'Total_Leads': tot_l_sum,
-                    'Approved': f"{tot_l_app} ({(tot_l_app/tot_l_sum)*100:.1f}%)" if tot_l_app > 0 else "-",
-                    'Rejected': f"{tot_l_rej} ({(tot_l_rej/tot_l_sum)*100:.1f}%)" if tot_l_rej > 0 else "-",
-                    'Pending': f"{tot_l_pen} ({(tot_l_pen/tot_l_sum)*100:.1f}%)" if tot_l_pen > 0 else "-"
+                    'Agent': 'TOTAL', 'Total_Leads': l_total,
+                    'Approved': f"{l_app} ({p_app:.1f}%)" if l_app > 0 else "-",
+                    'Rejected': f"{l_rej} ({p_rej:.1f}%)" if l_rej > 0 else "-",
+                    'Pending': f"{l_pen} ({p_pen:.1f}%)" if l_pen > 0 else "-"
                 }])
                 l_leaderboard = pd.concat([l_leaderboard, l_total_row], ignore_index=True)
             else:
@@ -424,16 +422,26 @@ if is_ready:
         if selected_sales_month != "All Months":
             df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
 
-        s_status_counts = df_s_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
+        # Calculate performance metrics exactly matching the bottom table total calculations
+        if not df_s_filtered.empty:
+            raw_s_lb = df_s_filtered.groupby('Agent').agg(
+                Total_Sales=('Agent', 'count'),
+                Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
+                Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
+                Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum())
+            ).reset_index().sort_values(by='Total_Sales', ascending=False)
+            
+            s_total = raw_s_lb['Total_Sales'].sum()
+            s_live = raw_s_lb['Live'].sum()
+            s_total_cancel = raw_s_lb['Cancelled'].sum()
+            s_pend = raw_s_lb['Pending'].sum()
+        else:
+            s_total, s_live, s_total_cancel, s_pend = 0, 0, 0, 0
+
+        # Maintain breakdown counts from filtered segments
         s_reason_counts = df_s_filtered['Cancel_Reason'].value_counts().to_dict()
-        
-        s_total = len(df_s_filtered)
-        s_live = s_status_counts.get('Live', 0)
-        s_pend = s_status_counts.get('Pending', 0)
-        
-        s_pay_cancel = s_reason_counts.get('Payment Cancelled', 0)
         s_wc_cancel = s_reason_counts.get('WC Cancelled', 0)
-        s_total_cancel = s_pay_cancel + s_wc_cancel
+        s_pay_cancel = s_reason_counts.get('Payment Cancelled', 0)
 
         ps_live = (s_live / s_total * 100) if s_total > 0 else 0
         ps_canc = (s_total_cancel / s_total * 100) if s_total > 0 else 0
@@ -478,13 +486,6 @@ if is_ready:
         with col_s_table:
             st.markdown('<div class="section-header">Agent Sales Performance Matrix</div>', unsafe_allow_html=True)
             if not df_s_filtered.empty:
-                raw_s_lb = df_s_filtered.groupby('Agent').agg(
-                    Total_Sales=('Agent', 'count'),
-                    Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
-                    Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
-                    Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum())
-                ).reset_index().sort_values(by='Total_Sales', ascending=False)
-                
                 s_leaderboard = pd.DataFrame()
                 s_leaderboard['Agent'] = raw_s_lb['Agent']
                 s_leaderboard['Total_Sales'] = raw_s_lb['Total_Sales']
@@ -493,16 +494,11 @@ if is_ready:
                 s_leaderboard['Cancelled'] = raw_s_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
                 s_leaderboard['Pending'] = raw_s_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
                 
-                tot_s_sum = raw_s_lb['Total_Sales'].sum()
-                tot_s_live = raw_s_lb['Live'].sum()
-                tot_s_canc = raw_s_lb['Cancelled'].sum()
-                tot_s_pend = raw_s_lb['Pending'].sum()
-                
                 s_total_row = pd.DataFrame([{
-                    'Agent': 'TOTAL', 'Total_Sales': tot_s_sum,
-                    'Live': f"{tot_s_live} ({(tot_s_live/tot_s_sum)*100:.1f}%)" if tot_s_live > 0 else "-",
-                    'Cancelled': f"{tot_s_canc} ({(tot_s_canc/tot_s_sum)*100:.1f}%)" if tot_s_canc > 0 else "-",
-                    'Pending': f"{tot_s_pend} ({(tot_s_pend/tot_s_sum)*100:.1f}%)" if tot_s_pend > 0 else "-"
+                    'Agent': 'TOTAL', 'Total_Sales': s_total,
+                    'Live': f"{s_live} ({ps_live:.1f}%)" if s_live > 0 else "-",
+                    'Cancelled': f"{s_total_cancel} ({ps_canc:.1f}%)" if s_total_cancel > 0 else "-",
+                    'Pending': f"{s_pend} ({ps_pend:.1f}%)" if s_pend > 0 else "-"
                 }])
                 s_leaderboard = pd.concat([s_leaderboard, s_total_row], ignore_index=True)
             else:
@@ -565,19 +561,27 @@ if is_ready:
         if selected_conv_month != "All Months":
             df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
-        c_status_counts = df_c_filtered['Cleaned_Payment_Status'].value_counts().to_dict()
+        # Ingest summary analytics directly mirroring the bottom data layout logic
+        if not df_c_filtered.empty:
+            raw_c_lb = df_c_filtered.groupby('Agent').agg(
+                Total_Sales=('Agent', 'count'),
+                Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
+                Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
+                Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
+                Revenue=('Live_Amount', 'sum')
+            ).reset_index().sort_values(by='Total_Sales', ascending=False)
+            
+            c_total = raw_c_lb['Total_Sales'].sum()
+            c_live = raw_c_lb['Live'].sum()
+            c_total_cancel = raw_c_lb['Cancelled'].sum()
+            c_pend = raw_c_lb['Pending'].sum()
+            c_revenue = raw_c_lb['Revenue'].sum()
+        else:
+            c_total, c_live, c_total_cancel, c_pend, c_revenue = 0, 0, 0, 0, 0.0
+
         c_reason_counts = df_c_filtered['Cancel_Reason'].value_counts().to_dict()
-        
-        c_total = len(df_c_filtered)
-        c_live = c_status_counts.get('Live', 0)
-        c_pend = c_status_counts.get('Pending', 0)
-        c_revenue = df_c_filtered['Live_Amount'].sum()
-        
+        c_wc_cancel = c_reason_counts.get('WC Cancelled', 0) if 'WC Cancelled' in c_reason_counts else c_reason_counts.get('Welcome Call Cancelled', 0)
         c_pay_cancel = c_reason_counts.get('Payment Cancelled', 0)
-        c_wc_cancel = c_reason_counts.get('Welcome Call Cancelled', 0) 
-        if c_wc_cancel == 0 and 'WC Cancelled' in c_reason_counts:
-            c_wc_cancel = c_reason_counts.get('WC Cancelled', 0)
-        c_total_cancel = c_pay_cancel + c_wc_cancel
 
         pc_live = (c_live / c_total * 100) if c_total > 0 else 0
         pc_canc = (c_total_cancel / c_total * 100) if c_total > 0 else 0
@@ -599,7 +603,7 @@ if is_ready:
                 pct = (count / c_pay_cancel * 100) if c_pay_cancel > 0 else 0
                 c_sub_html_items.append(f'<span class="breakdown-item">⚠️ <b>{cat_name}:</b> {count:,} ({pct:.1f}%)</span>')
         
-        c_sub_cat_string = " ".join(c_sub_html_items) if s_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
+        c_sub_cat_string = " ".join(c_sub_html_items) if c_sub_html_items else '<span style="font-size:12px; color:#64748b;">No category text discovered in column metrics</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
@@ -621,14 +625,6 @@ if is_ready:
         with col_c_table:
             st.markdown('<div class="section-header">Agent Conversion & Revenue Summary</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
-                raw_c_lb = df_c_filtered.groupby('Agent').agg(
-                    Total_Sales=('Agent', 'count'),
-                    Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
-                    Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
-                    Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
-                    Revenue=('Live_Amount', 'sum')
-                ).reset_index().sort_values(by='Total_Sales', ascending=False)
-                
                 c_leaderboard = pd.DataFrame()
                 c_leaderboard['Agent'] = raw_c_lb['Agent']
                 c_leaderboard['Total_Sales'] = raw_c_lb['Total_Sales']
@@ -638,18 +634,12 @@ if is_ready:
                 c_leaderboard['Pending'] = raw_c_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
                 c_leaderboard['Revenue'] = raw_c_lb['Revenue']
                 
-                tot_c_sum = raw_c_lb['Total_Sales'].sum()
-                tot_c_live = raw_c_lb['Live'].sum()
-                tot_c_canc = raw_c_lb['Cancelled'].sum()
-                tot_c_pend = raw_c_lb['Pending'].sum()
-                tot_c_rev = raw_c_lb['Revenue'].sum()
-                
                 c_total_row = pd.DataFrame([{
-                    'Agent': 'TOTAL', 'Total_Sales': tot_c_sum,
-                    'Live': f"{tot_c_live} ({(tot_c_live/tot_c_sum)*100:.1f}%)" if tot_c_live > 0 else "-",
-                    'Cancelled': f"{tot_c_canc} ({(tot_c_canc/tot_c_sum)*100:.1f}%)" if tot_c_canc > 0 else "-",
-                    'Pending': f"{tot_c_pend} ({(tot_c_pend/tot_c_sum)*100:.1f}%)" if tot_c_pend > 0 else "-",
-                    'Revenue': tot_c_rev
+                    'Agent': 'TOTAL', 'Total_Sales': c_total,
+                    'Live': f"{c_live} ({pc_live:.1f}%)" if c_live > 0 else "-",
+                    'Cancelled': f"{c_total_cancel} ({pc_canc:.1f}%)" if c_total_cancel > 0 else "-",
+                    'Pending': f"{c_pend} ({pc_pend:.1f}%)" if c_pend > 0 else "-",
+                    'Revenue': c_revenue
                 }])
                 c_leaderboard = pd.concat([c_leaderboard, c_total_row], ignore_index=True)
             else:
