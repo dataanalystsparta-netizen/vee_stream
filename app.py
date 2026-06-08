@@ -304,8 +304,7 @@ if is_ready:
         "💰 Sales Verification Tracker", 
         "🔄 Leads Conversion Status"
     ])
-    
-    # ==========================================
+  # ==========================================
     # WORKSPACE TAB 1: LEADS ANALYSIS ENGINE
     # ==========================================
     with tab_leads:
@@ -442,7 +441,6 @@ if is_ready:
         ps_canc = (s_total_cancel / s_total * 100) if s_total > 0 else 0
         ps_pend = (s_pend / s_total * 100) if s_total > 0 else 0
 
-        # Structural Layout Upgrade: Swapped to 5-column metric dashboard layout to incorporate Invoice amounts
         sc1, sc2, sc3, sc4, sc5 = st.columns(5)
         sc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Logged Sales</div><div class="metric-number">{s_total:,}</div></div>', unsafe_allow_html=True)
         sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
@@ -450,6 +448,49 @@ if is_ready:
         sc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Review</div><div class="metric-number" style="color:#ca8a04;">{s_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
         sc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Live Invoiced Revenue</div><div class="metric-number">£{s_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # --- NEW SECTION: QUALITY STATUS BREAKDOWN (TAB 2) ---
+        if 'Quality Status' in df_s_filtered.columns and not df_s_filtered.empty:
+            s_q_counts = df_s_filtered['Quality Status'].astype(str).str.strip().value_counts().to_dict()
+            s_q_html = []
+            for q_name, q_cnt in s_q_counts.items():
+                if q_name not in ['nan', 'None', '']:
+                    q_pct = (q_cnt / s_total * 100) if s_total > 0 else 0
+                    s_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
+            s_q_string = " ".join(s_q_html) if s_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
+        else:
+            s_q_string = '<span style="font-size:12px; color:#64748b;">Quality Status column missing or empty in data context</span>'
+
+        st.markdown(
+            f'<div class="breakdown-strip">'
+            f'  <div class="breakdown-title">🛡️ Quality Status Breakdown</div>'
+            f'  <div class="breakdown-sub-box">{s_q_string}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # --- NEW SECTION: WLCM STATUS BREAKDOWN (TAB 2) ---
+        if 'WlcmStatus' in df_s_filtered.columns and not df_s_filtered.empty:
+            s_w_counts = df_s_filtered['WlcmStatus'].astype(str).str.strip().value_counts().to_dict()
+            s_w_html = []
+            for w_name, w_cnt in s_w_counts.items():
+                if w_name not in ['nan', 'None', '']:
+                    w_pct = (w_cnt / s_total * 100) if s_total > 0 else 0
+                    s_w_html.append(f'<span class="breakdown-item">📞 <b>{w_name}:</b> {w_cnt:,} ({w_pct:.1f}%)</span>')
+            s_w_string = " ".join(s_w_html) if s_w_html else '<span style="font-size:12px; color:#64748b;">No welcome call status metrics found</span>'
+        else:
+            s_w_string = '<span style="font-size:12px; color:#64748b;">WlcmStatus column missing or empty in data context</span>'
+
+        st.markdown(
+            f'<div class="breakdown-strip">'
+            f'  <div class="breakdown-title">👋 Wlcm Status Breakdown</div>'
+            f'  <div class="breakdown-sub-box">{s_w_string}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # --- EXISTING: CANCELLATION BREAKDOWN (TAB 2) ---
         df_s_disallowed_only = df_s_filtered[df_s_filtered['Cancel_Reason'] == 'Payment Cancelled']
         s_sub_cat_counts = df_s_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -593,6 +634,49 @@ if is_ready:
         cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # --- NEW SECTION: QUALITY STATUS BREAKDOWN (TAB 3) ---
+        if 'Quality Status' in df_c_filtered.columns and not df_c_filtered.empty:
+            c_q_counts = df_c_filtered['Quality Status'].astype(str).str.strip().value_counts().to_dict()
+            c_q_html = []
+            for q_name, q_cnt in c_q_counts.items():
+                if q_name not in ['nan', 'None', '']:
+                    q_pct = (q_cnt / c_total * 100) if c_total > 0 else 0
+                    c_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
+            c_q_string = " ".join(c_q_html) if c_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
+        else:
+            c_q_string = '<span style="font-size:12px; color:#64748b;">Quality Status column missing or empty in context</span>'
+
+        st.markdown(
+            f'<div class="breakdown-strip">'
+            f'  <div class="breakdown-title">🛡️ Quality Status Breakdown</div>'
+            f'  <div class="breakdown-sub-box">{c_q_string}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # --- NEW SECTION: WLCM STATUS BREAKDOWN (TAB 3) ---
+        if 'WlcmStatus' in df_c_filtered.columns and not df_c_filtered.empty:
+            c_w_counts = df_c_filtered['WlcmStatus'].astype(str).str.strip().value_counts().to_dict()
+            c_w_html = []
+            for w_name, w_cnt in c_w_counts.items():
+                if w_name not in ['nan', 'None', '']:
+                    w_pct = (w_cnt / c_total * 100) if c_total > 0 else 0
+                    c_w_html.append(f'<span class="breakdown-item">📞 <b>{w_name}:</b> {w_cnt:,} ({w_pct:.1f}%)</span>')
+            c_w_string = " ".join(c_w_html) if c_w_html else '<span style="font-size:12px; color:#64748b;">No welcome call status metrics found</span>'
+        else:
+            c_w_string = '<span style="font-size:12px; color:#64748b;">WlcmStatus column missing or empty in context</span>'
+
+        st.markdown(
+            f'<div class="breakdown-strip">'
+            f'  <div class="breakdown-title">👋 Wlcm Status Breakdown</div>'
+            f'  <div class="breakdown-sub-box">{c_w_string}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # --- EXISTING: CANCELLATION BREAKDOWN (TAB 3) ---
         df_c_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
         c_sub_cat_counts = df_c_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -661,7 +745,7 @@ if is_ready:
                     cx_col, cx_lbl = 'Lead_Day_Display', 'Date'
                 else:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
-                    cx_col, cx_lbl = 'Lead_Month_Display', 'Month'
+                    cx_col, sx_lbl = 'Lead_Month_Display', 'Month'
                 
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
