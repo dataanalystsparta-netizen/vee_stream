@@ -200,13 +200,13 @@ def fetch_dashboard_data():
     else:
         df_l['Clean_Phone'] = ""
 
-    if 'Quality status' in df_l.columns:
-        df_l['Quality status'] = df_l['Quality status'].astype(str).str.strip()
-        df_l['Cleaned_Quality_status'] = df_l['Quality status'].apply(
+    if 'Quality Status' in df_l.columns:
+        df_l['Quality Status'] = df_l['Quality Status'].astype(str).str.strip()
+        df_l['Cleaned_Quality_Status'] = df_l['Quality Status'].apply(
             lambda v: 'Approved' if v.lower() in ['approved', 'approve'] else ('Rejected' if v.lower() in ['rejected', 'reject'] else 'Pending')
         )
     else:
-        df_l['Cleaned_Quality_status'] = 'Pending'
+        df_l['Cleaned_Quality_Status'] = 'Pending'
         
     # === B. INGEST SALES WORKSHEET ===
     raw_sales = ss.worksheet('sales').get_all_records()
@@ -304,7 +304,8 @@ if is_ready:
         "💰 Sales Verification Tracker", 
         "🔄 Leads Conversion Status"
     ])
-  # ==========================================
+    
+    # ==========================================
     # WORKSPACE TAB 1: LEADS ANALYSIS ENGINE
     # ==========================================
     with tab_leads:
@@ -327,9 +328,9 @@ if is_ready:
         if not df_l_filtered.empty:
             raw_l_lb = df_l_filtered.groupby('Agent').agg(
                 Total_Leads=('Agent', 'count'),
-                Approved=('Cleaned_Quality_status', lambda x: (x == 'Approved').sum()),
-                Rejected=('Cleaned_Quality_status', lambda x: (x == 'Rejected').sum()),
-                Pending=('Cleaned_Quality_status', lambda x: (x == 'Pending').sum())
+                Approved=('Cleaned_Quality_Status', lambda x: (x == 'Approved').sum()),
+                Rejected=('Cleaned_Quality_Status', lambda x: (x == 'Rejected').sum()),
+                Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
             ).reset_index().sort_values(by='Total_Leads', ascending=False)
             
             l_total = raw_l_lb['Total_Leads'].sum()
@@ -386,14 +387,14 @@ if is_ready:
             st.markdown('<div class="section-header">Leads Quality Trend</div>', unsafe_allow_html=True)
             if not df_l_filtered.empty:
                 if selected_lead_month != "All Months":
-                    trend_df = df_l_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
+                    trend_df = df_l_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
                     x_col, x_lbl = 'Day_Display', 'Date'
                 else:
-                    trend_df = df_l_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Quality_status']).size().reset_index(name='Volume').sort_values('Parsed_Month')
+                    trend_df = df_l_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume').sort_values('Parsed_Month')
                     x_col, x_lbl = 'Month_Display', 'Month Block'
                 
-                fig_l = px.line(trend_df, x=x_col, y='Volume', color='Cleaned_Quality_status',
-                                labels={x_col: x_lbl, 'Volume': 'Leads Volume', 'Cleaned_Quality_status': 'Status'},
+                fig_l = px.line(trend_df, x=x_col, y='Volume', color='Cleaned_Quality_Status',
+                                labels={x_col: x_lbl, 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
                                 color_discrete_map={'Approved': '#16a34a', 'Rejected': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
                 fig_l.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
                                     xaxis=dict(showgrid=False, linecolor='#cbd5e1'), yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None),
@@ -450,8 +451,8 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- NEW SECTION: QUALITY STATUS BREAKDOWN (TAB 2) ---
-        if 'Quality Status' in df_s_filtered.columns and not df_s_filtered.empty:
+        # --- QUALITY STATUS BREAKDOWN (TAB 2) ---
+        if 'Quality status' in df_s_filtered.columns and not df_s_filtered.empty:
             s_q_counts = df_s_filtered['Quality status'].astype(str).str.strip().value_counts().to_dict()
             s_q_html = []
             for q_name, q_cnt in s_q_counts.items():
@@ -460,7 +461,7 @@ if is_ready:
                     s_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             s_q_string = " ".join(s_q_html) if s_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
-            s_q_string = '<span style="font-size:12px; color:#64748b;">Quality Status column missing or empty in data context</span>'
+            s_q_string = '<span style="font-size:12px; color:#64748b;">Quality status column missing or empty in data context</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
@@ -470,7 +471,7 @@ if is_ready:
             unsafe_allow_html=True
         )
 
-        # --- NEW SECTION: WLCM STATUS BREAKDOWN (TAB 2) ---
+        # --- WLCM STATUS BREAKDOWN (TAB 2) ---
         if 'WlcmStatus' in df_s_filtered.columns and not df_s_filtered.empty:
             s_w_counts = df_s_filtered['WlcmStatus'].astype(str).str.strip().value_counts().to_dict()
             s_w_html = []
@@ -490,7 +491,7 @@ if is_ready:
             unsafe_allow_html=True
         )
 
-        # --- EXISTING: CANCELLATION BREAKDOWN (TAB 2) ---
+        # --- CANCELLATION BREAKDOWN (TAB 2) ---
         df_s_disallowed_only = df_s_filtered[df_s_filtered['Cancel_Reason'] == 'Payment Cancelled']
         s_sub_cat_counts = df_s_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -571,7 +572,7 @@ if is_ready:
                                     legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
                 st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
-   # ==========================================
+    # ==========================================
     # WORKSPACE TAB 3: LEADS CONVERSION STATUS
     # ==========================================
     with tab_conversion:
@@ -636,7 +637,7 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- QUALITY STATUS BREAKDOWN ---
+        # --- QUALITY STATUS BREAKDOWN (TAB 3) ---
         if 'Quality status' in df_c_filtered.columns and not df_c_filtered.empty:
             c_q_counts = df_c_filtered['Quality status'].astype(str).str.strip().value_counts().to_dict()
             c_q_html = []
@@ -646,7 +647,7 @@ if is_ready:
                     c_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             c_q_string = " ".join(c_q_html) if c_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
-            c_q_string = '<span style="font-size:12px; color:#64748b;">Quality Status column missing or empty in context</span>'
+            c_q_string = '<span style="font-size:12px; color:#64748b;">Quality status column missing or empty in context</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
@@ -656,7 +657,7 @@ if is_ready:
             unsafe_allow_html=True
         )
 
-        # --- WLCM STATUS BREAKDOWN ---
+        # --- WLCM STATUS BREAKDOWN (TAB 3) ---
         if 'WlcmStatus' in df_c_filtered.columns and not df_c_filtered.empty:
             c_w_counts = df_c_filtered['WlcmStatus'].astype(str).str.strip().value_counts().to_dict()
             c_w_html = []
@@ -676,7 +677,7 @@ if is_ready:
             unsafe_allow_html=True
         )
 
-        # --- CANCELLATION BREAKDOWN ---
+        # --- CANCELLATION BREAKDOWN (TAB 3) ---
         df_c_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
         c_sub_cat_counts = df_c_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
