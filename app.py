@@ -97,18 +97,15 @@ def log_login_event(email):
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
         
-        # Accessing the logins worksheet (Matches your target GID workspace)
         try:
             log_sheet = ss.worksheet('logins')
         except gspread.exceptions.WorksheetNotFound:
-            # Fallback creation if sheet missing, using clean headers
             log_sheet = ss.add_worksheet(title='logins', rows='100', cols='3')
             log_sheet.append_row(['Timestamp', 'User Corporate Email', 'Activity Profile Status'])
             
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         log_sheet.append_row([current_time, email, 'Login Success'])
     except Exception as log_error:
-        # Failsafe protection so audit failure doesn't lock users completely out of the UI
         pass
 
 def check_login():
@@ -124,7 +121,7 @@ def check_login():
         st.error("Invalid email pattern or matching verification credentials.")
 
 if not st.session_state["authenticated"]:
-    st.session_state["logged_login"] = False  # Reset on sign-out state
+    st.session_state["logged_login"] = False
     st.markdown(f"""
         <div class="login-wrapper">
             <div class="login-card">
@@ -145,7 +142,6 @@ if not st.session_state["authenticated"]:
             st.form_submit_button("Verify Identity & Connect", on_click=check_login, use_container_width=True)
     st.stop()
 
-# Trigger structured logging process once verified
 if st.session_state["authenticated"] and not st.session_state["logged_login"]:
     log_login_event(st.session_state["user_email"])
     st.session_state["logged_login"] = True
@@ -329,7 +325,6 @@ if is_ready:
         if selected_lead_month != "All Months":
             df_l_filtered = df_l_filtered[df_l_filtered['Month_Display'] == selected_lead_month]
 
-        # In case matrix calculations are completely blank
         if not df_l_filtered.empty:
             raw_l_lb = df_l_filtered.groupby('Agent').agg(
                 Total_Leads=('Agent', 'count'),
@@ -422,23 +417,23 @@ if is_ready:
         if selected_sales_month != "All Months":
             df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
 
-        # Calculate performance metrics exactly matching the bottom table total calculations
         if not df_s_filtered.empty:
             raw_s_lb = df_s_filtered.groupby('Agent').agg(
                 Total_Sales=('Agent', 'count'),
                 Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
                 Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
-                Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum())
+                Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
+                Revenue=('Live_Amount', 'sum')
             ).reset_index().sort_values(by='Total_Sales', ascending=False)
             
             s_total = raw_s_lb['Total_Sales'].sum()
             s_live = raw_s_lb['Live'].sum()
             s_total_cancel = raw_s_lb['Cancelled'].sum()
             s_pend = raw_s_lb['Pending'].sum()
+            s_revenue = raw_s_lb['Revenue'].sum()
         else:
-            s_total, s_live, s_total_cancel, s_pend = 0, 0, 0, 0
+            s_total, s_live, s_total_cancel, s_pend, s_revenue = 0, 0, 0, 0, 0.0
 
-        # Maintain breakdown counts from filtered segments
         s_reason_counts = df_s_filtered['Cancel_Reason'].value_counts().to_dict()
         s_wc_cancel = s_reason_counts.get('WC Cancelled', 0)
         s_pay_cancel = s_reason_counts.get('Payment Cancelled', 0)
@@ -447,11 +442,13 @@ if is_ready:
         ps_canc = (s_total_cancel / s_total * 100) if s_total > 0 else 0
         ps_pend = (s_pend / s_total * 100) if s_total > 0 else 0
 
-        sc1, sc2, sc3, sc4 = st.columns(4)
+        # Structural Layout Upgrade: Swapped to 5-column metric dashboard layout to incorporate Invoice amounts
+        sc1, sc2, sc3, sc4, sc5 = st.columns(5)
         sc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Logged Sales</div><div class="metric-number">{s_total:,}</div></div>', unsafe_allow_html=True)
         sc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{s_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
         sc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{s_total_cancel:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_canc:.1f}%)</span></div></div>', unsafe_allow_html=True)
         sc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Review</div><div class="metric-number" style="color:#ca8a04;">{s_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({ps_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        sc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Live Invoiced Revenue</div><div class="metric-number">£{s_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
         df_s_disallowed_only = df_s_filtered[df_s_filtered['Cancel_Reason'] == 'Payment Cancelled']
         s_sub_cat_counts = df_s_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
@@ -493,16 +490,18 @@ if is_ready:
                 s_leaderboard['Live'] = raw_s_lb.apply(lambda r: f"{r['Live']} ({(r['Live']/r['Total_Sales'])*100:.1f}%)" if r['Live'] > 0 else "-", axis=1)
                 s_leaderboard['Cancelled'] = raw_s_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
                 s_leaderboard['Pending'] = raw_s_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
+                s_leaderboard['Revenue'] = raw_s_lb['Revenue']
                 
                 s_total_row = pd.DataFrame([{
                     'Agent': 'TOTAL', 'Total_Sales': s_total,
                     'Live': f"{s_live} ({ps_live:.1f}%)" if s_live > 0 else "-",
                     'Cancelled': f"{s_total_cancel} ({ps_canc:.1f}%)" if s_total_cancel > 0 else "-",
-                    'Pending': f"{s_pend} ({ps_pend:.1f}%)" if s_pend > 0 else "-"
+                    'Pending': f"{s_pend} ({ps_pend:.1f}%)" if s_pend > 0 else "-",
+                    'Revenue': s_revenue
                 }])
                 s_leaderboard = pd.concat([s_leaderboard, s_total_row], ignore_index=True)
             else:
-                s_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending"])
+                s_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending", "Revenue"])
 
             st.dataframe(s_leaderboard.reset_index(drop=True), column_config={
                 "Agent": st.column_config.TextColumn("Consultant Name"),
@@ -510,6 +509,7 @@ if is_ready:
                 "Live": st.column_config.TextColumn("🟢 Live (%)"),
                 "Cancelled": st.column_config.TextColumn("🔴 Cancelled (%)"),
                 "Pending": st.column_config.TextColumn("🟡 Pending (%)"),
+                "Revenue": st.column_config.NumberColumn("💰 Live Revenue", format="£%.2f"),
             }, hide_index=True, use_container_width=True, height=400)
             
         with col_s_chart:
@@ -561,7 +561,6 @@ if is_ready:
         if selected_conv_month != "All Months":
             df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
-        # Ingest summary analytics directly mirroring the bottom data layout logic
         if not df_c_filtered.empty:
             raw_c_lb = df_c_filtered.groupby('Agent').agg(
                 Total_Sales=('Agent', 'count'),
