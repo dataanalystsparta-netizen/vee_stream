@@ -200,13 +200,13 @@ def fetch_dashboard_data():
     else:
         df_l['Clean_Phone'] = ""
 
-    if 'Quality Status' in df_l.columns:
-        df_l['Quality Status'] = df_l['Quality Status'].astype(str).str.strip()
-        df_l['Cleaned_Quality_Status'] = df_l['Quality Status'].apply(
+    if 'Quality status' in df_l.columns:
+        df_l['Quality status'] = df_l['Quality status'].astype(str).str.strip()
+        df_l['Cleaned_Quality_status'] = df_l['Quality status'].apply(
             lambda v: 'Approved' if v.lower() in ['approved', 'approve'] else ('Rejected' if v.lower() in ['rejected', 'reject'] else 'Pending')
         )
     else:
-        df_l['Cleaned_Quality_Status'] = 'Pending'
+        df_l['Cleaned_Quality_status'] = 'Pending'
         
     # === B. INGEST SALES WORKSHEET ===
     raw_sales = ss.worksheet('sales').get_all_records()
@@ -327,9 +327,9 @@ if is_ready:
         if not df_l_filtered.empty:
             raw_l_lb = df_l_filtered.groupby('Agent').agg(
                 Total_Leads=('Agent', 'count'),
-                Approved=('Cleaned_Quality_Status', lambda x: (x == 'Approved').sum()),
-                Rejected=('Cleaned_Quality_Status', lambda x: (x == 'Rejected').sum()),
-                Pending=('Cleaned_Quality_Status', lambda x: (x == 'Pending').sum())
+                Approved=('Cleaned_Quality_status', lambda x: (x == 'Approved').sum()),
+                Rejected=('Cleaned_Quality_status', lambda x: (x == 'Rejected').sum()),
+                Pending=('Cleaned_Quality_status', lambda x: (x == 'Pending').sum())
             ).reset_index().sort_values(by='Total_Leads', ascending=False)
             
             l_total = raw_l_lb['Total_Leads'].sum()
@@ -386,14 +386,14 @@ if is_ready:
             st.markdown('<div class="section-header">Leads Quality Trend</div>', unsafe_allow_html=True)
             if not df_l_filtered.empty:
                 if selected_lead_month != "All Months":
-                    trend_df = df_l_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
+                    trend_df = df_l_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
                     x_col, x_lbl = 'Day_Display', 'Date'
                 else:
-                    trend_df = df_l_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume').sort_values('Parsed_Month')
+                    trend_df = df_l_filtered.groupby(['Parsed_Month', 'Month_Display', 'Cleaned_Quality_status']).size().reset_index(name='Volume').sort_values('Parsed_Month')
                     x_col, x_lbl = 'Month_Display', 'Month Block'
                 
-                fig_l = px.line(trend_df, x=x_col, y='Volume', color='Cleaned_Quality_Status',
-                                labels={x_col: x_lbl, 'Volume': 'Leads Volume', 'Cleaned_Quality_Status': 'Status'},
+                fig_l = px.line(trend_df, x=x_col, y='Volume', color='Cleaned_Quality_status',
+                                labels={x_col: x_lbl, 'Volume': 'Leads Volume', 'Cleaned_Quality_status': 'Status'},
                                 color_discrete_map={'Approved': '#16a34a', 'Rejected': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
                 fig_l.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
                                     xaxis=dict(showgrid=False, linecolor='#cbd5e1'), yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None),
@@ -452,7 +452,7 @@ if is_ready:
 
         # --- NEW SECTION: QUALITY STATUS BREAKDOWN (TAB 2) ---
         if 'Quality Status' in df_s_filtered.columns and not df_s_filtered.empty:
-            s_q_counts = df_s_filtered['Quality Status'].astype(str).str.strip().value_counts().to_dict()
+            s_q_counts = df_s_filtered['Quality status'].astype(str).str.strip().value_counts().to_dict()
             s_q_html = []
             for q_name, q_cnt in s_q_counts.items():
                 if q_name not in ['nan', 'None', '']:
@@ -637,8 +637,8 @@ if is_ready:
         st.markdown("<br>", unsafe_allow_html=True)
 
         # --- QUALITY STATUS BREAKDOWN ---
-        if 'Quality Status' in df_c_filtered.columns and not df_c_filtered.empty:
-            c_q_counts = df_c_filtered['Quality Status'].astype(str).str.strip().value_counts().to_dict()
+        if 'Quality status' in df_c_filtered.columns and not df_c_filtered.empty:
+            c_q_counts = df_c_filtered['Quality status'].astype(str).str.strip().value_counts().to_dict()
             c_q_html = []
             for q_name, q_cnt in c_q_counts.items():
                 if q_name not in ['nan', 'None', '']:
