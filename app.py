@@ -571,7 +571,7 @@ if is_ready:
                                     legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
                 st.plotly_chart(fig_s, use_container_width=True, config={'displayModeBar': False})
 
-    # ==========================================
+   # ==========================================
     # WORKSPACE TAB 3: LEADS CONVERSION STATUS
     # ==========================================
     with tab_conversion:
@@ -636,7 +636,7 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- NEW SECTION: QUALITY STATUS BREAKDOWN (TAB 3) ---
+        # --- QUALITY STATUS BREAKDOWN ---
         if 'Quality Status' in df_c_filtered.columns and not df_c_filtered.empty:
             c_q_counts = df_c_filtered['Quality Status'].astype(str).str.strip().value_counts().to_dict()
             c_q_html = []
@@ -656,7 +656,7 @@ if is_ready:
             unsafe_allow_html=True
         )
 
-        # --- NEW SECTION: WLCM STATUS BREAKDOWN (TAB 3) ---
+        # --- WLCM STATUS BREAKDOWN ---
         if 'WlcmStatus' in df_c_filtered.columns and not df_c_filtered.empty:
             c_w_counts = df_c_filtered['WlcmStatus'].astype(str).str.strip().value_counts().to_dict()
             c_w_html = []
@@ -676,7 +676,7 @@ if is_ready:
             unsafe_allow_html=True
         )
 
-        # --- EXISTING: CANCELLATION BREAKDOWN (TAB 3) ---
+        # --- CANCELLATION BREAKDOWN ---
         df_c_disallowed_only = df_c_filtered[df_c_filtered['Cancel_Reason'] == 'Payment Cancelled']
         c_sub_cat_counts = df_c_disallowed_only['Disallowed_Subcategory'].value_counts().to_dict()
         
@@ -745,7 +745,7 @@ if is_ready:
                     cx_col, cx_lbl = 'Lead_Day_Display', 'Date'
                 else:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
-                    cx_col, sx_lbl = 'Lead_Month_Display', 'Month'
+                    cx_col, cx_lbl = 'Lead_Month_Display', 'Month'
                 
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
                                 labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
