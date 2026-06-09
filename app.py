@@ -26,7 +26,6 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
     
-    /* Completely eliminate Streamlit's block paddings to kill the ghost rectangle */
     div[data-testid="stBlock"] { padding: 0px !important; margin: 0px !important; }
     
     .main-title { font-size: 26px; font-weight: 700; color: #0f172a !important; margin-bottom: 2px; }
@@ -40,7 +39,6 @@ st.markdown("""
     .breakdown-item { font-size: 13px; color: #334155; font-weight: 500; background: #ffffff; padding: 3px 10px; border-radius: 4px; border: 1px solid #e2e8f0; }
     .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
     
-    /* 100% Pure CSS Center-Aligned Premium Login Card */
     .login-wrapper {
         display: flex;
         justify-content: center;
@@ -75,7 +73,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Updated Active Asset Links
+# Active Asset Links
 DASHBOARD_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 LOGIN_LOGO_URL = "https://raw.githubusercontent.com/dataanalystsparta-netizen/logos/refs/heads/main/vee.png"
 
@@ -90,29 +88,25 @@ if "logged_login" not in st.session_state:
     st.session_state["logged_login"] = False
 
 def log_login_event(email):
-    """Appends identity, accurate timestamp, and context to the spreadsheet logs worksheet."""
     try:
         creds_dict = dict(st.secrets["gcp_service_account"])
         creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
         client = gspread.authorize(creds)
         ss = client.open_by_key(SHEET_ID)
-        
         try:
             log_sheet = ss.worksheet('logins')
         except gspread.exceptions.WorksheetNotFound:
             log_sheet = ss.add_worksheet(title='logins', rows='100', cols='3')
             log_sheet.append_row(['Timestamp', 'User Corporate Email', 'Activity Profile Status'])
-            
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         log_sheet.append_row([current_time, email, 'Login Success'])
-    except Exception as log_error:
+    except Exception:
         pass
 
 def check_login():
     email_input = st.session_state["login_email"].strip().lower()
     password_input = st.session_state["login_password"].strip()
     allowed_users = st.secrets.get("users", {})
-    
     if email_input in allowed_users and str(allowed_users[email_input]) == password_input:
         st.session_state["authenticated"] = True
         st.session_state["user_email"] = email_input
@@ -146,7 +140,7 @@ if st.session_state["authenticated"] and not st.session_state["logged_login"]:
     log_login_event(st.session_state["user_email"])
     st.session_state["logged_login"] = True
 
-# --- 4. BACKEND CONSOLE METRIC PROCESSOR (Post-Login) ---
+# --- 4. BACKEND CONSOLE METRIC PROCESSOR ---
 def normalize_phone_string(series):
     return (
         series.astype(str)
@@ -285,14 +279,11 @@ except Exception as e:
 
 if is_ready:
     top_logo_col, top_title_col, top_btn_col = st.columns([0.6, 7.4, 2])
-    
     with top_logo_col:
         st.image(DASHBOARD_LOGO_URL, width=70)
-        
     with top_title_col:
         st.markdown('<div class="main-title" style="margin-top:-5px;">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Vee Repairs - lead generation and sales tracker: Updated every hour. Synced directly with the Leads and Sales files.</div>', unsafe_allow_html=True)
-        
     with top_btn_col:
         if st.button("🚫Logout", use_container_width=True):
             st.session_state["authenticated"] = False
@@ -451,20 +442,44 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- QUALITY STATUS BREAKDOWN (TAB 2) ---
+        # --- ADJUSTED DYNAMIC QUALITY STATUS BREAKDOWN (TAB 2) ---
         if 'Quality status' in df_s_filtered.columns and not df_s_filtered.empty:
-            # Handle blank, None, and empty records by mapping them to "Quality Pending"
+            # Drop strings representing empty values, keeping clean categoricals
             df_s_filtered['Normalized_Quality'] = df_s_filtered['Quality status'].astype(str).str.strip()
-            df_s_filtered.loc[df_s_filtered['Normalized_Quality'].isin(['nan', 'None', '']), 'Normalized_Quality'] = 'Quality Pending'
             
-            s_q_counts = df_s_filtered['Normalized_Quality'].value_counts().to_dict()
+            # Explicit category sums
+            s_q_approved = df_s_filtered['Normalized_Quality'].str.lower().isin(['approved', 'approve']).sum()
+            s_q_rejected = df_s_filtered['Normalized_Quality'].str.lower().isin(['rejected', 'reject']).sum()
+            
+            # Identify other valid explicit categories (excluding variants of empty contexts or approved/rejected fields)
+            non_explicit = ['nan', 'none', '', 'approved', 'approve', 'rejected', 'reject']
+            other_series = df_s_filtered[~df_s_filtered['Normalized_Quality'].str.lower().isin(non_explicit)]
+            other_categories = other_series['Normalized_Quality'].value_counts().to_dict()
+            
+            # Sum up all explicit assignments discovered inside this block
+            explicit_sum = s_q_approved + s_q_rejected + sum(other_categories.values())
+            
+            # Calculate Quality Pending dynamically as the math remainder to match Total Logged Sales perfectly
+            s_q_pending = max(0, s_total - explicit_sum)
+            
+            # Construct standard map order
+            ordered_q_counts = {}
+            if s_q_approved > 0: ordered_q_counts['Approved'] = s_q_approved
+            if s_q_rejected > 0: ordered_q_counts['Rejected'] = s_q_rejected
+            for cat_k, cat_v in other_categories.items():
+                ordered_q_counts[cat_k] = cat_v
+            if s_q_pending > 0: ordered_q_counts['Quality Pending'] = s_q_pending
+
             s_q_html = []
-            for q_name, q_cnt in s_q_counts.items():
+            for q_name, q_cnt in ordered_q_counts.items():
                 q_pct = (q_cnt / s_total * 100) if s_total > 0 else 0
                 s_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             s_q_string = " ".join(s_q_html) if s_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
-            s_q_string = '<span style="font-size:12px; color:#64748b;">Quality status column missing or empty in data context</span>'
+            # If column missing entirely, everything is Quality Pending
+            s_q_pending = s_total
+            s_pct_pending = 100.0 if s_total > 0 else 0
+            s_q_string = f'<span class="breakdown-item">✨ <b>Quality Pending:</b> {s_q_pending:,} ({s_pct_pending:.1f}%)</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
@@ -640,20 +655,42 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- QUALITY STATUS BREAKDOWN (TAB 3) ---
+        # --- ADJUSTED DYNAMIC QUALITY STATUS BREAKDOWN (TAB 3) ---
         if 'Quality status' in df_c_filtered.columns and not df_c_filtered.empty:
-            # Handle blank, None, and empty records by mapping them to "Quality Pending"
             df_c_filtered['Normalized_Quality'] = df_c_filtered['Quality status'].astype(str).str.strip()
-            df_c_filtered.loc[df_c_filtered['Normalized_Quality'].isin(['nan', 'None', '']), 'Normalized_Quality'] = 'Quality Pending'
             
-            c_q_counts = df_c_filtered['Normalized_Quality'].value_counts().to_dict()
+            # Explicit category sums
+            c_q_approved = df_c_filtered['Normalized_Quality'].str.lower().isin(['approved', 'approve']).sum()
+            c_q_rejected = df_c_filtered['Normalized_Quality'].str.lower().isin(['rejected', 'reject']).sum()
+            
+            # Sub-category queries
+            non_explicit_c = ['nan', 'none', '', 'approved', 'approve', 'rejected', 'reject']
+            other_series_c = df_c_filtered[~df_c_filtered['Normalized_Quality'].str.lower().isin(non_explicit_c)]
+            other_categories_c = other_series_c['Normalized_Quality'].value_counts().to_dict()
+            
+            # Sum explicit values discovered inside this subset
+            explicit_sum_c = c_q_approved + c_q_rejected + sum(other_categories_c.values())
+            
+            # Enforce dynamic balance remainder so it adds up to Total Converted perfectly
+            c_q_pending = max(0, c_total - explicit_sum_c)
+            
+            # Construct dictionary display order
+            ordered_c_counts = {}
+            if c_q_approved > 0: ordered_c_counts['Approved'] = c_q_approved
+            if c_q_rejected > 0: ordered_c_counts['Rejected'] = c_q_rejected
+            for cat_ck, cat_cv in other_categories_c.items():
+                ordered_c_counts[cat_ck] = cat_cv
+            if c_q_pending > 0: ordered_c_counts['Quality Pending'] = c_q_pending
+
             c_q_html = []
-            for q_name, q_cnt in c_q_counts.items():
+            for q_name, q_cnt in ordered_c_counts.items():
                 q_pct = (q_cnt / c_total * 100) if c_total > 0 else 0
                 c_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             c_q_string = " ".join(c_q_html) if c_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
-            c_q_string = '<span style="font-size:12px; color:#64748b;">Quality status column missing or empty in context</span>'
+            c_q_pending = c_total
+            c_pct_pending = 100.0 if c_total > 0 else 0
+            c_q_string = f'<span class="breakdown-item">✨ <b>Quality Pending:</b> {c_q_pending:,} ({c_pct_pending:.1f}%)</span>'
 
         st.markdown(
             f'<div class="breakdown-strip">'
@@ -749,13 +786,13 @@ if is_ready:
             if not df_c_filtered.empty:
                 if selected_conv_month != "All Months":
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Date', 'Lead_Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Date')
-                    cx_col, cx_lbl = 'Lead_Day_Display', 'Date'
+                    cx_col, sx_lbl = 'Lead_Day_Display', 'Date'
                 else:
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Month', 'Lead_Month_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Month')
-                    cx_col, cx_lbl = 'Lead_Month_Display', 'Month'
+                    cx_col, sx_lbl = 'Lead_Month_Display', 'Month'
                 
                 fig_c = px.line(c_trend_df, x=cx_col, y='Volume', color='Cleaned_Payment_Status',
-                                labels={cx_col: cx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
+                                labels={cx_col: sx_lbl, 'Volume': 'Sales Volume', 'Cleaned_Payment_Status': 'Status'},
                                 color_discrete_map={'Live': '#16a34a', 'Cancelled': '#dc2626', 'Pending': '#ca8a04'}, markers=True)
                 fig_c.update_layout(paper_bgcolor='#ffffff', plot_bgcolor='#ffffff', font=dict(family="Inter, sans-serif", size=11),
                                     xaxis=dict(showgrid=False, linecolor='#cbd5e1'), yaxis=dict(showgrid=True, gridcolor='#f1f5f9', title=None),
