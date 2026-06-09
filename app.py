@@ -503,7 +503,7 @@ if is_ready:
 
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'  <div class="breakdown-title">👋 Wlcm Status Breakdown</div>'
+            f'  <div class="breakdown-title">👋 Welcome Status Breakdown</div>'
             f'  <div class="breakdown-sub-box">{s_w_string}</div>'
             f'</div>',
             unsafe_allow_html=True
