@@ -453,12 +453,15 @@ if is_ready:
 
         # --- QUALITY STATUS BREAKDOWN (TAB 2) ---
         if 'Quality status' in df_s_filtered.columns and not df_s_filtered.empty:
-            s_q_counts = df_s_filtered['Quality status'].astype(str).str.strip().value_counts().to_dict()
+            # Handle blank, None, and empty records by mapping them to "Quality Pending"
+            df_s_filtered['Normalized_Quality'] = df_s_filtered['Quality status'].astype(str).str.strip()
+            df_s_filtered.loc[df_s_filtered['Normalized_Quality'].isin(['nan', 'None', '']), 'Normalized_Quality'] = 'Quality Pending'
+            
+            s_q_counts = df_s_filtered['Normalized_Quality'].value_counts().to_dict()
             s_q_html = []
             for q_name, q_cnt in s_q_counts.items():
-                if q_name not in ['nan', 'None', '']:
-                    q_pct = (q_cnt / s_total * 100) if s_total > 0 else 0
-                    s_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
+                q_pct = (q_cnt / s_total * 100) if s_total > 0 else 0
+                s_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             s_q_string = " ".join(s_q_html) if s_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
             s_q_string = '<span style="font-size:12px; color:#64748b;">Quality status column missing or empty in data context</span>'
@@ -639,12 +642,15 @@ if is_ready:
 
         # --- QUALITY STATUS BREAKDOWN (TAB 3) ---
         if 'Quality status' in df_c_filtered.columns and not df_c_filtered.empty:
-            c_q_counts = df_c_filtered['Quality status'].astype(str).str.strip().value_counts().to_dict()
+            # Handle blank, None, and empty records by mapping them to "Quality Pending"
+            df_c_filtered['Normalized_Quality'] = df_c_filtered['Quality status'].astype(str).str.strip()
+            df_c_filtered.loc[df_c_filtered['Normalized_Quality'].isin(['nan', 'None', '']), 'Normalized_Quality'] = 'Quality Pending'
+            
+            c_q_counts = df_c_filtered['Normalized_Quality'].value_counts().to_dict()
             c_q_html = []
             for q_name, q_cnt in c_q_counts.items():
-                if q_name not in ['nan', 'None', '']:
-                    q_pct = (q_cnt / c_total * 100) if c_total > 0 else 0
-                    c_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
+                q_pct = (q_cnt / c_total * 100) if c_total > 0 else 0
+                c_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             c_q_string = " ".join(c_q_html) if c_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
             c_q_string = '<span style="font-size:12px; color:#64748b;">Quality status column missing or empty in context</span>'
