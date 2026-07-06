@@ -444,25 +444,19 @@ if is_ready:
 
         # --- ADJUSTED DYNAMIC QUALITY STATUS BREAKDOWN (TAB 2) ---
         if 'Quality status' in df_s_filtered.columns and not df_s_filtered.empty:
-            # Drop strings representing empty values, keeping clean categoricals
             df_s_filtered['Normalized_Quality'] = df_s_filtered['Quality status'].astype(str).str.strip()
             
-            # Explicit category sums
             s_q_approved = df_s_filtered['Normalized_Quality'].str.lower().isin(['approved', 'approve']).sum()
             s_q_rejected = df_s_filtered['Normalized_Quality'].str.lower().isin(['rejected', 'reject']).sum()
             
-            # Identify other valid explicit categories (excluding variants of empty contexts or approved/rejected fields)
             non_explicit = ['nan', 'none', '', 'approved', 'approve', 'rejected', 'reject']
             other_series = df_s_filtered[~df_s_filtered['Normalized_Quality'].str.lower().isin(non_explicit)]
             other_categories = other_series['Normalized_Quality'].value_counts().to_dict()
             
-            # Sum up all explicit assignments discovered inside this block
             explicit_sum = s_q_approved + s_q_rejected + sum(other_categories.values())
             
-            # Calculate Quality Pending dynamically as the math remainder to match Total Logged Sales perfectly
             s_q_pending = max(0, s_total - explicit_sum)
             
-            # Construct standard map order
             ordered_q_counts = {}
             if s_q_approved > 0: ordered_q_counts['Approved'] = s_q_approved
             if s_q_rejected > 0: ordered_q_counts['Rejected'] = s_q_rejected
@@ -476,7 +470,6 @@ if is_ready:
                 s_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             s_q_string = " ".join(s_q_html) if s_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
-            # If column missing entirely, everything is Quality Pending
             s_q_pending = s_total
             s_pct_pending = 100.0 if s_total > 0 else 0
             s_q_string = f'<span class="breakdown-item">✨ <b>Quality Pending:</b> {s_q_pending:,} ({s_pct_pending:.1f}%)</span>'
@@ -503,7 +496,7 @@ if is_ready:
 
         st.markdown(
             f'<div class="breakdown-strip">'
-            f'  <div class="breakdown-title">👋 Welcome Status Breakdown</div>'
+            f'  <div class="breakdown-title">👋 Wlcm Status Breakdown</div>'
             f'  <div class="breakdown-sub-box">{s_w_string}</div>'
             f'</div>',
             unsafe_allow_html=True
@@ -596,6 +589,8 @@ if is_ready:
     with tab_conversion:
         left_c_filt, right_c_space = st.columns([1, 1])
         with left_c_filt:
+            selected_conv_source = st.selectbox("Lead Distribution Branch", ["All Sources", "Delhi", "Ranchi"], key="conv_src_filter")
+        with right_c_space:
             valid_conv_months = sorted(
                 [m for m in df_leads['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
                 key=lambda x: pd.to_datetime(x, format='%b %Y')
@@ -607,6 +602,15 @@ if is_ready:
         phone_to_pmonth = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Month']))
         phone_to_pdate = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Date']))
         phone_to_ddisplay = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Day_Display']))
+        phone_to_source = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Mapped_Source']))
+
+        # Calculate Total Leads for this tab dynamically based on the active selection metrics
+        df_l_total_calc = df_leads.copy()
+        if selected_conv_source != "All Sources":
+            df_l_total_calc = df_l_total_calc[df_l_total_calc['Mapped_Source'] == selected_conv_source]
+        if selected_conv_month != "All Months":
+            df_l_total_calc = df_l_total_calc[df_l_total_calc['Month_Display'] == selected_conv_month]
+        conv_tab_total_leads = len(df_l_total_calc)
 
         df_c_filtered = df_sales.copy()
         
@@ -617,7 +621,10 @@ if is_ready:
         df_c_filtered['Lead_Parsed_Month'] = df_c_filtered['Clean_Phone'].map(phone_to_pmonth)
         df_c_filtered['Lead_Parsed_Date'] = df_c_filtered['Clean_Phone'].map(phone_to_pdate)
         df_c_filtered['Lead_Day_Display'] = df_c_filtered['Clean_Phone'].map(phone_to_ddisplay)
+        df_c_filtered['Lead_Mapped_Source'] = df_c_filtered['Clean_Phone'].map(phone_to_source)
 
+        if selected_conv_source != "All Sources":
+            df_c_filtered = df_c_filtered[df_c_filtered['Lead_Mapped_Source'] == selected_conv_source]
         if selected_conv_month != "All Months":
             df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
@@ -646,7 +653,8 @@ if is_ready:
         pc_canc = (c_total_cancel / c_total * 100) if c_total > 0 else 0
         pc_pend = (c_pend / c_total * 100) if c_total > 0 else 0
 
-        cc1, cc2, cc3, cc4, cc5 = st.columns(5)
+        cc0, cc1, cc2, cc3, cc4, cc5 = st.columns(6)
+        cc0.markdown(f'<div class="metric-box"><div class="metric-label">Total Leads</div><div class="metric-number">{conv_tab_total_leads:,}</div></div>', unsafe_allow_html=True)
         cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
         cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_total_cancel:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_canc:.1f}%)</span></div></div>', unsafe_allow_html=True)
@@ -659,22 +667,17 @@ if is_ready:
         if 'Quality status' in df_c_filtered.columns and not df_c_filtered.empty:
             df_c_filtered['Normalized_Quality'] = df_c_filtered['Quality status'].astype(str).str.strip()
             
-            # Explicit category sums
             c_q_approved = df_c_filtered['Normalized_Quality'].str.lower().isin(['approved', 'approve']).sum()
             c_q_rejected = df_c_filtered['Normalized_Quality'].str.lower().isin(['rejected', 'reject']).sum()
             
-            # Sub-category queries
             non_explicit_c = ['nan', 'none', '', 'approved', 'approve', 'rejected', 'reject']
             other_series_c = df_c_filtered[~df_c_filtered['Normalized_Quality'].str.lower().isin(non_explicit_c)]
             other_categories_c = other_series_c['Normalized_Quality'].value_counts().to_dict()
             
-            # Sum explicit values discovered inside this subset
             explicit_sum_c = c_q_approved + c_q_rejected + sum(other_categories_c.values())
             
-            # Enforce dynamic balance remainder so it adds up to Total Converted perfectly
             c_q_pending = max(0, c_total - explicit_sum_c)
             
-            # Construct dictionary display order
             ordered_c_counts = {}
             if c_q_approved > 0: ordered_c_counts['Approved'] = c_q_approved
             if c_q_rejected > 0: ordered_c_counts['Rejected'] = c_q_rejected
