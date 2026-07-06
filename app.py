@@ -4,6 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
 from datetime import datetime
+import numpy as np
 
 # --- 1. SET COMPACT GLOBAL CONFIG ---
 st.set_page_config(
@@ -628,37 +629,72 @@ if is_ready:
         if selected_conv_month != "All Months":
             df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
 
+        # ==============================================================================
+        # DUAL-METRIC COMPILATION ENGINE (Unique Conversions vs Total Multi-Conversions)
+        # ==============================================================================
         if not df_c_filtered.empty:
+            # 1. Total Multi-Conversions (Count every transaction row)
             raw_c_lb = df_c_filtered.groupby('Agent').agg(
-                Total_Sales=('Agent', 'count'),
-                Live=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
-                Cancelled=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
-                Pending=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
-                Revenue=('Live_Amount', 'sum')
-            ).reset_index().sort_values(by='Total_Sales', ascending=False)
+                Total_Sales_Multi=('Agent', 'count'),
+                Live_Multi=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
+                Cancelled_Multi=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
+                Pending_Multi=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum()),
+                Revenue_Multi=('Live_Amount', 'sum')
+            ).reset_index()
+
+            # 2. Unique Conversions (Drop duplicate phone logs per agent hierarchy)
+            df_c_unique = df_c_filtered.drop_duplicates(subset=['Agent', 'Clean_Phone']).copy()
+            raw_c_lb_unique = df_c_unique.groupby('Agent').agg(
+                Total_Sales_Unique=('Agent', 'count'),
+                Live_Unique=('Cleaned_Payment_Status', lambda x: (x == 'Live').sum()),
+                Cancelled_Unique=('Cleaned_Payment_Status', lambda x: (x == 'Cancelled').sum()),
+                Pending_Unique=('Cleaned_Payment_Status', lambda x: (x == 'Pending').sum())
+            ).reset_index()
+
+            # Combine summaries 
+            raw_c_lb = pd.merge(raw_c_lb, raw_c_lb_unique, on='Agent', how='outer').fillna(0)
+            raw_c_lb = raw_c_lb.sort_values(by='Total_Sales_Multi', ascending=False)
             
-            c_total = raw_c_lb['Total_Sales'].sum()
-            c_live = raw_c_lb['Live'].sum()
-            c_total_cancel = raw_c_lb['Cancelled'].sum()
-            c_pend = raw_c_lb['Pending'].sum()
-            c_revenue = raw_c_lb['Revenue'].sum()
+            # Global Totals
+            c_total_multi = int(raw_c_lb['Total_Sales_Multi'].sum())
+            c_live_multi = int(raw_c_lb['Live_Multi'].sum())
+            c_total_cancel_multi = int(raw_c_lb['Cancelled_Multi'].sum())
+            c_pend_multi = int(raw_c_lb['Pending_Multi'].sum())
+            c_revenue = raw_c_lb['Revenue_Multi'].sum()
+
+            c_total_unique = int(df_c_filtered.drop_duplicates(subset=['Clean_Phone'])['Clean_Phone'].count())
+            c_live_unique = int(df_c_filtered[df_c_filtered['Cleaned_Payment_Status'] == 'Live'].drop_duplicates(subset=['Clean_Phone'])['Clean_Phone'].count())
+            c_total_cancel_unique = int(df_c_filtered[df_c_filtered['Cleaned_Payment_Status'] == 'Cancelled'].drop_duplicates(subset=['Clean_Phone'])['Clean_Phone'].count())
+            c_pend_unique = int(df_c_filtered[df_c_filtered['Cleaned_Payment_Status'] == 'Pending'].drop_duplicates(subset=['Clean_Phone'])['Clean_Phone'].count())
         else:
-            c_total, c_live, c_total_cancel, c_pend, c_revenue = 0, 0, 0, 0, 0.0
+            c_total_multi, c_live_multi, c_total_cancel_multi, c_pend_multi, c_revenue = 0, 0, 0, 0, 0.0
+            c_total_unique, c_live_unique, c_total_cancel_unique, c_pend_unique = 0, 0, 0, 0
+            raw_c_lb = pd.DataFrame()
 
         c_reason_counts = df_c_filtered['Cancel_Reason'].value_counts().to_dict()
         c_wc_cancel = c_reason_counts.get('WC Cancelled', 0) if 'WC Cancelled' in c_reason_counts else c_reason_counts.get('Welcome Call Cancelled', 0)
         c_pay_cancel = c_reason_counts.get('Payment Cancelled', 0)
 
-        pc_live = (c_live / c_total * 100) if c_total > 0 else 0
-        pc_canc = (c_total_cancel / c_total * 100) if c_total > 0 else 0
-        pc_pend = (c_pend / c_total * 100) if c_total > 0 else 0
+        # Rates Calculations
+        rate_total_unique = (c_total_unique / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+        rate_total_multi = (c_total_multi / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+        
+        rate_live_unique = (c_live_unique / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+        rate_live_multi = (c_live_multi / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
 
+        rate_cancel_unique = (c_total_cancel_unique / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+        rate_cancel_multi = (c_total_cancel_multi / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+
+        rate_pend_unique = (c_pend_unique / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+        rate_pend_multi = (c_pend_multi / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
+
+        # UI Executive KPI Block Output
         cc0, cc1, cc2, cc3, cc4, cc5 = st.columns(6)
-        cc0.markdown(f'<div class="metric-box"><div class="metric-label">Total Leads</div><div class="metric-number">{conv_tab_total_leads:,}</div></div>', unsafe_allow_html=True)
-        cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted</div><div class="metric-number">{c_total:,}</div></div>', unsafe_allow_html=True)
-        cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_live:.1f}%)</span></div></div>', unsafe_allow_html=True)
-        cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_total_cancel:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_canc:.1f}%)</span></div></div>', unsafe_allow_html=True)
-        cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend:,} <span style="font-size:14px; font-weight:500; color:#475569;">({pc_pend:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        cc0.markdown(f'<div class="metric-box"><div class="metric-label">Total Leads Pool</div><div class="metric-number">{conv_tab_total_leads:,}</div></div>', unsafe_allow_html=True)
+        cc1.markdown(f'<div class="metric-box"><div class="metric-label">Total Converted</div><div class="metric-number">{c_total_unique:,} <span style="font-size:13px; font-weight:500; color:#475569;">({c_total_multi:,})</span><br><span style="font-size:11px; font-weight:600; color:#64748b;">{rate_total_unique:.1f}% ({rate_total_multi:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        cc2.markdown(f'<div class="metric-box"><div class="metric-label">🟢 Live (Accepted)</div><div class="metric-number" style="color:#16a34a;">{c_live_unique:,} <span style="font-size:13px; font-weight:500; color:#475569;">({c_live_multi:,})</span><br><span style="font-size:11px; font-weight:600; color:#16a34a;">{rate_live_unique:.1f}% ({rate_live_multi:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_total_cancel_unique:,} <span style="font-size:13px; font-weight:500; color:#475569;">({c_total_cancel_multi:,})</span><br><span style="font-size:11px; font-weight:600; color:#dc2626;">{rate_cancel_unique:.1f}% ({rate_cancel_multi:.1f}%)</span></div></div>', unsafe_allow_html=True)
+        cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend_unique:,} <span style="font-size:13px; font-weight:500; color:#475569;">({c_pend_multi:,})</span><br><span style="font-size:11px; font-weight:600; color:#ca8a04;">{rate_pend_unique:.1f}% ({rate_pend_multi:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -676,7 +712,7 @@ if is_ready:
             
             explicit_sum_c = c_q_approved + c_q_rejected + sum(other_categories_c.values())
             
-            c_q_pending = max(0, c_total - explicit_sum_c)
+            c_q_pending = max(0, c_total_multi - explicit_sum_c)
             
             ordered_c_counts = {}
             if c_q_approved > 0: ordered_c_counts['Approved'] = c_q_approved
@@ -687,12 +723,12 @@ if is_ready:
 
             c_q_html = []
             for q_name, q_cnt in ordered_c_counts.items():
-                q_pct = (q_cnt / c_total * 100) if c_total > 0 else 0
+                q_pct = (q_cnt / c_total_multi * 100) if c_total_multi > 0 else 0
                 c_q_html.append(f'<span class="breakdown-item">✨ <b>{q_name}:</b> {q_cnt:,} ({q_pct:.1f}%)</span>')
             c_q_string = " ".join(c_q_html) if c_q_html else '<span style="font-size:12px; color:#64748b;">No quality status variables found</span>'
         else:
-            c_q_pending = c_total
-            c_pct_pending = 100.0 if c_total > 0 else 0
+            c_q_pending = c_total_multi
+            c_pct_pending = 100.0 if c_total_multi > 0 else 0
             c_q_string = f'<span class="breakdown-item">✨ <b>Quality Pending:</b> {c_q_pending:,} ({c_pct_pending:.1f}%)</span>'
 
         st.markdown(
@@ -709,7 +745,7 @@ if is_ready:
             c_w_html = []
             for w_name, w_cnt in c_w_counts.items():
                 if w_name not in ['nan', 'None', '']:
-                    w_pct = (w_cnt / c_total * 100) if c_total > 0 else 0
+                    w_pct = (w_cnt / c_total_multi * 100) if c_total_multi > 0 else 0
                     c_w_html.append(f'<span class="breakdown-item">📞 <b>{w_name}:</b> {w_cnt:,} ({w_pct:.1f}%)</span>')
             c_w_string = " ".join(c_w_html) if c_w_html else '<span style="font-size:12px; color:#64748b;">No welcome call status metrics found</span>'
         else:
@@ -739,7 +775,7 @@ if is_ready:
             f'<div class="breakdown-strip">'
             f'  <div class="breakdown-title">🔍 Cancellation Reason Breakdown</div>'
             f'  <div class="breakdown-sub-box" style="margin-bottom: 8px;">'
-            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled:</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel*100 if c_total_cancel > 0 else 0):.1f}%)</span>'
+            f'      <span style="font-size:13px; color:#334155;">📋 <b>Welcome Call Cancelled:</b> {c_wc_cancel:,} records ({(c_wc_cancel/c_total_cancel_multi*100 if c_total_cancel_multi > 0 else 0):.1f}%)</span>'
             f'  </div>'
             f'  <div style="border-top: 1px dashed #cbd5e1; margin: 8px 0;"></div>'
             f'  <div class="breakdown-title" style="font-size:11px; color:#64748b;">🚫 Payment Status Cancelled Subcategories ({c_pay_cancel:,} Total):</div>'
@@ -750,6 +786,8 @@ if is_ready:
             unsafe_allow_html=True
         )
 
+        st.markdown("<br>", unsafe_allow_html=True)
+
         col_c_table, col_c_chart = st.columns([4, 5], gap="large")
         
         with col_c_table:
@@ -757,35 +795,50 @@ if is_ready:
             if not df_c_filtered.empty:
                 c_leaderboard = pd.DataFrame()
                 c_leaderboard['Agent'] = raw_c_lb['Agent']
-                c_leaderboard['Total_Sales'] = raw_c_lb['Total_Sales']
                 
-                c_leaderboard['Live'] = raw_c_lb.apply(lambda r: f"{r['Live']} ({(r['Live']/r['Total_Sales'])*100:.1f}%)" if r['Live'] > 0 else "-", axis=1)
-                c_leaderboard['Cancelled'] = raw_c_lb.apply(lambda r: f"{r['Cancelled']} ({(r['Cancelled']/r['Total_Sales'])*100:.1f}%)" if r['Cancelled'] > 0 else "-", axis=1)
-                c_leaderboard['Pending'] = raw_c_lb.apply(lambda r: f"{r['Pending']} ({(r['Pending']/r['Total_Sales'])*100:.1f}%)" if r['Pending'] > 0 else "-", axis=1)
-                c_leaderboard['Revenue'] = raw_c_lb['Revenue']
+                # Format Leaderboard Rows to show: Unique (Total Volume) with Bracketed Percentages
+                c_leaderboard['Total_Converted'] = raw_c_lb.apply(
+                    lambda r: f"{int(r['Total_Sales_Unique'])} ({int(r['Total_Sales_Multi'])})", axis=1
+                )
                 
+                c_leaderboard['Live'] = raw_c_lb.apply(
+                    lambda r: f"{int(r['Live_Unique'])} ({int(r['Live_Multi'])}) — [{(r['Live_Unique']/r['Total_Sales_Unique']*100 if r['Total_Sales_Unique'] > 0 else 0):.1f}% | {(r['Live_Multi']/r['Total_Sales_Multi']*100 if r['Total_Sales_Multi'] > 0 else 0):.1f}%]", axis=1
+                )
+                
+                c_leaderboard['Cancelled'] = raw_c_lb.apply(
+                    lambda r: f"{int(r['Cancelled_Unique'])} ({int(r['Cancelled_Multi'])}) — [{(r['Cancelled_Unique']/r['Total_Sales_Unique']*100 if r['Total_Sales_Unique'] > 0 else 0):.1f}% | {(r['Cancelled_Multi']/r['Total_Sales_Multi']*100 if r['Total_Sales_Multi'] > 0 else 0):.1f}%]", axis=1
+                )
+                
+                c_leaderboard['Pending'] = raw_c_lb.apply(
+                    lambda r: f"{int(r['Pending_Unique'])} ({int(r['Pending_Multi'])}) — [{(r['Pending_Unique']/r['Total_Sales_Unique']*100 if r['Total_Sales_Unique'] > 0 else 0):.1f}% | {(r['Pending_Multi']/r['Total_Sales_Multi']*100 if r['Total_Sales_Multi'] > 0 else 0):.1f}%]", axis=1
+                )
+                
+                c_leaderboard['Revenue'] = raw_c_lb['Revenue_Multi']
+                
+                # Append Summary Total Row
                 c_total_row = pd.DataFrame([{
-                    'Agent': 'TOTAL', 'Total_Sales': c_total,
-                    'Live': f"{c_live} ({pc_live:.1f}%)" if c_live > 0 else "-",
-                    'Cancelled': f"{c_total_cancel} ({pc_canc:.1f}%)" if c_total_cancel > 0 else "-",
-                    'Pending': f"{c_pend} ({pc_pend:.1f}%)" if c_pend > 0 else "-",
+                    'Agent': 'TOTAL',
+                    'Total_Converted': f"{c_total_unique} ({c_total_multi})",
+                    'Live': f"{c_live_unique} ({c_live_multi}) — [{c_live_unique/c_total_unique*100 if c_total_unique > 0 else 0:.1f}% | {c_live_multi/c_total_multi*100 if c_total_multi > 0 else 0:.1f}%]",
+                    'Cancelled': f"{c_total_cancel_unique} ({c_total_cancel_multi}) — [{c_total_cancel_unique/c_total_unique*100 if c_total_unique > 0 else 0:.1f}% | {c_total_cancel_multi/c_total_multi*100 if c_total_multi > 0 else 0:.1f}%]",
+                    'Pending': f"{c_pend_unique} ({c_pend_multi}) — [{c_pend_unique/c_total_unique*100 if c_total_unique > 0 else 0:.1f}% | {c_pend_multi/c_total_multi*100 if c_total_multi > 0 else 0:.1f}%]",
                     'Revenue': c_revenue
                 }])
                 c_leaderboard = pd.concat([c_leaderboard, c_total_row], ignore_index=True)
             else:
-                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Sales", "Live", "Cancelled", "Pending", "Revenue"])
+                c_leaderboard = pd.DataFrame(columns=["Agent", "Total_Converted", "Live", "Cancelled", "Pending", "Revenue"])
 
             st.dataframe(c_leaderboard.reset_index(drop=True), column_config={
                 "Agent": st.column_config.TextColumn("Consultant Name"),
-                "Total_Sales": st.column_config.NumberColumn("Total Converted Leads", format="%d"),
-                "Live": st.column_config.TextColumn("🟢 Live (%)"),
-                "Cancelled": st.column_config.TextColumn("🔴 Cancelled (%)"),
-                "Pending": st.column_config.TextColumn("🟡 Pending (%)"),
+                "Total_Converted": st.column_config.TextColumn("Unique (Total) Volume"),
+                "Live": st.column_config.TextColumn("🟢 Live Metrics [Uniq% | Multi%]"),
+                "Cancelled": st.column_config.TextColumn("🔴 Cancelled Metrics [Uniq% | Multi%]"),
+                "Pending": st.column_config.TextColumn("🟡 Pending Metrics [Uniq% | Multi%]"),
                 "Revenue": st.column_config.NumberColumn("💰 Live Revenue", format="£%.2f"),
             }, hide_index=True, use_container_width=True, height=400)
             
         with col_c_chart:
-            st.markdown('<div class="section-header">Lead Conversion Over Time</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-header">Lead Conversion Over Time (Total Volumes)</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
                 if selected_conv_month != "All Months":
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Date', 'Lead_Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Date')
