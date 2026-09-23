@@ -14,64 +14,169 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. EXECUTIVE THEME & INTERFACE CUSTOMIZATION ---
-st.config.set_option("theme.backgroundColor", "#f8fafc")
+# --- 2. PREMIUM EXECUTIVE THEME & INTERFACE CUSTOMIZATION ---
+st.config.set_option("theme.backgroundColor", "#f7f8fa")
 st.config.set_option("theme.secondaryBackgroundColor", "#ffffff")
-st.config.set_option("theme.textColor", "#0f172a")
+st.config.set_option("theme.textColor", "#111827")
 st.config.set_option("theme.primaryColor", "#eab308")
 
 st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;600;700&display=swap');
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        font-family: 'Inter', sans-serif;
-    }
-    
-    div[data-testid="stBlock"] { padding: 0px !important; margin: 0px !important; }
-    
-    .main-title { font-size: 26px; font-weight: 700; color: #0f172a !important; margin-bottom: 2px; }
-    .subtitle { font-size: 13px; color: #475569 !important; margin-bottom: 20px; }
-    .metric-box { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-    .metric-label { font-size: 11px; font-weight: 600; color: #475569 !important; text-transform: uppercase; letter-spacing: 0.5px; }
-    .metric-number { font-size: 24px; font-weight: 700; color: #0f172a !important; margin-top: 2px; }
-    .breakdown-strip { background-color: #f1f5f9; border-radius: 8px; padding: 12px 18px; border-left: 4px solid #cbd5e1; margin-bottom: 15px; }
-    .breakdown-title { font-weight: 700; color: #1e293b; font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; display: block; margin-bottom: 6px; }
-    .breakdown-sub-box { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
-    .breakdown-item { font-size: 13px; color: #334155; font-weight: 500; background: #ffffff; padding: 3px 10px; border-radius: 4px; border: 1px solid #e2e8f0; }
-    .section-header { font-size: 16px; font-weight: 600; color: #0f172a !important; margin-bottom: 12px; }
-    
-    .login-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        width: 100%;
-        padding-top: 50px;
-    }
-    .login-card { 
-        width: 440px; 
-        padding: 35px; 
-        background: #ffffff; 
-        border-radius: 12px; 
-        border: 1px solid #e2e8f0; 
-        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.04);
-        text-align: center;
-    }
-    .logo-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin-bottom: 16px;
-        width: 100%;
-    }
-    .login-header { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 5px; margin-bottom: 6px; }
-    .login-subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; }
-    
-    div[data-testid="stTable"] th, div[data-testid="styledDataFrame"] th, .stDataFrame th {
-        background-color: #fef08a !important;
-        color: #1e293b !important;
-        font-weight: 600 !important;
-    }
-    </style>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+    --vr-ink: #111827;
+    --vr-muted: #64748b;
+    --vr-line: #e5e7eb;
+    --vr-soft: #f8fafc;
+    --vr-yellow: #eab308;
+    --vr-yellow-soft: #fef9c3;
+    --vr-green: #16a34a;
+    --vr-red: #dc2626;
+    --vr-amber: #ca8a04;
+}
+
+html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"],
+[data-testid="stSidebar"], button, input, textarea, select {
+    font-family: 'Inter', sans-serif !important;
+}
+
+[data-testid="stAppViewContainer"] {
+    background:
+        radial-gradient(circle at 90% 0%, rgba(234,179,8,.055), transparent 25%),
+        #f7f8fa;
+}
+
+[data-testid="stHeader"] { background: transparent !important; }
+.block-container { padding-top: 1.25rem !important; padding-bottom: 3rem !important; max-width: 1500px; }
+div[data-testid="stBlock"] { padding: 0 !important; }
+
+.vr-header {
+    background: rgba(255,255,255,.96);
+    border: 1px solid var(--vr-line);
+    border-radius: 18px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+    box-shadow: 0 8px 30px rgba(15,23,42,.045);
+}
+.vr-brand { display:flex; align-items:center; gap:15px; }
+.vr-brand img { width:58px; height:58px; object-fit:contain; }
+.vr-eyebrow {
+    color:#a16207; font-size:10px; font-weight:800;
+    letter-spacing:1.35px; text-transform:uppercase; margin-bottom:3px;
+}
+.vr-title { color:var(--vr-ink); font-size:25px; line-height:1.15; font-weight:800; letter-spacing:-.6px; }
+.vr-subtitle { color:var(--vr-muted); font-size:12px; margin-top:5px; }
+.vr-status {
+    display:inline-flex; align-items:center; gap:7px;
+    padding:7px 11px; border-radius:999px;
+    background:#f0fdf4; border:1px solid #bbf7d0;
+    color:#166534; font-size:11px; font-weight:700;
+}
+.vr-dot { width:7px; height:7px; border-radius:50%; background:#22c55e; display:inline-block; }
+
+.vr-section {
+    display:flex; align-items:flex-end; justify-content:space-between;
+    margin:24px 0 10px;
+}
+.vr-section-title { font-size:15px; font-weight:800; color:var(--vr-ink); letter-spacing:-.15px; }
+.vr-section-note { font-size:11px; color:#94a3b8; }
+
+.vr-filter {
+    background:#fff; border:1px solid var(--vr-line); border-radius:14px;
+    padding:11px 14px 4px; margin:2px 0 14px;
+    box-shadow:0 3px 15px rgba(15,23,42,.025);
+}
+.vr-filter-label {
+    color:#94a3b8; font-size:9px; font-weight:800;
+    text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;
+}
+
+.metric-box {
+    background:#fff; border:1px solid var(--vr-line); border-radius:14px;
+    padding:17px 18px; min-height:105px;
+    box-shadow:0 5px 20px rgba(15,23,42,.035);
+    transition:transform .15s ease, box-shadow .15s ease;
+}
+.metric-box:hover { transform:translateY(-1px); box-shadow:0 8px 25px rgba(15,23,42,.065); }
+.metric-label {
+    color:#64748b !important; font-size:9px; font-weight:800;
+    text-transform:uppercase; letter-spacing:.8px;
+}
+.metric-number { color:var(--vr-ink) !important; font-size:25px; font-weight:800; letter-spacing:-.6px; margin-top:6px; }
+.metric-caption { color:#94a3b8; font-size:10px; margin-top:4px; }
+
+.breakdown-strip {
+    background:#fff; border:1px solid var(--vr-line); border-left:4px solid #facc15;
+    border-radius:13px; padding:13px 15px; margin:10px 0;
+    box-shadow:0 3px 14px rgba(15,23,42,.025);
+}
+.breakdown-title {
+    color:var(--vr-ink); font-size:10px; font-weight:800;
+    text-transform:uppercase; letter-spacing:.8px; display:block; margin-bottom:8px;
+}
+.breakdown-sub-box { display:flex; flex-wrap:wrap; gap:7px; align-items:center; }
+.breakdown-item {
+    font-size:11px; color:#334155; font-weight:600; background:#f8fafc;
+    padding:5px 9px; border-radius:7px; border:1px solid #e2e8f0;
+}
+
+.section-header {
+    color:var(--vr-ink) !important; font-size:15px; font-weight:800;
+    letter-spacing:-.15px; margin:5px 0 10px;
+}
+[data-testid="stDataFrame"] {
+    border:1px solid var(--vr-line); border-radius:12px; overflow:hidden;
+    box-shadow:0 3px 16px rgba(15,23,42,.025);
+}
+[data-testid="stDataFrame"] [role="columnheader"] {
+    background:#f8fafc !important; color:#475569 !important;
+    font-weight:800 !important; font-size:11px !important;
+}
+[data-testid="stDataFrame"] [role="gridcell"] { font-size:11px !important; }
+div[data-testid="stTable"] th { background:#fef9c3 !important; color:#334155 !important; }
+
+.stTabs [data-baseweb="tab-list"] {
+    gap:5px; background:#fff; border:1px solid var(--vr-line);
+    padding:5px; border-radius:14px; box-shadow:0 4px 18px rgba(15,23,42,.035);
+}
+.stTabs [data-baseweb="tab"] {
+    height:43px; padding:0 17px; border-radius:10px;
+    color:#64748b; font-size:11px; font-weight:700;
+}
+.stTabs [aria-selected="true"] {
+    background:#111827 !important; color:#fff !important;
+}
+.stTabs [data-baseweb="tab-highlight"] { display:none; }
+
+.stButton > button {
+    border:1px solid #d1d5db !important; border-radius:9px !important;
+    font-weight:700 !important; font-size:11px !important;
+    min-height:38px; background:#fff !important; color:#374151 !important;
+}
+.stButton > button:hover { border-color:#eab308 !important; color:#92400e !important; }
+
+[data-testid="stSelectbox"] label, [data-testid="stTextInput"] label {
+    color:#64748b !important; font-size:10px !important; font-weight:700 !important;
+}
+[data-baseweb="select"] > div {
+    border-radius:9px !important; border-color:#e5e7eb !important; min-height:38px;
+}
+
+.vr-login-wrap { max-width:460px; margin:7vh auto 0; }
+.login-card {
+    background:#fff; border:1px solid var(--vr-line); border-radius:22px;
+    padding:38px 40px; box-shadow:0 18px 55px rgba(15,23,42,.08); text-align:center;
+}
+.logo-container { display:flex; justify-content:center; margin-bottom:17px; }
+.login-header { font-size:23px; font-weight:800; color:var(--vr-ink); letter-spacing:-.4px; }
+.login-subtitle { font-size:12px; color:#64748b; margin:7px 0 22px; }
+.login-badge {
+    display:inline-block; padding:5px 9px; border-radius:999px;
+    background:var(--vr-yellow-soft); color:#854d0e; font-size:9px;
+    font-weight:800; text-transform:uppercase; letter-spacing:.9px; margin-bottom:14px;
+}
+</style>
 """, unsafe_allow_html=True)
 
 # Active Asset Links
@@ -118,13 +223,14 @@ def check_login():
 if not st.session_state["authenticated"]:
     st.session_state["logged_login"] = False
     st.markdown(f"""
-        <div class="login-wrapper">
+        <div class="vr-login-wrap">
             <div class="login-card">
                 <div class="logo-container">
-                    <img src="{LOGIN_LOGO_URL}" width="100" style="display: block; margin: 0 auto;">
+                    <img src="{LOGIN_LOGO_URL}" width="92" style="display:block;margin:0 auto;">
                 </div>
-                <div class="login-header">Vee Repairs Leads and Sales tracker</div>
-                <div class="login-subtitle">Please sign in to access data matrices</div>
+                <div class="login-badge">Secure Business Dashboard</div>
+                <div class="login-header">Vee Repairs</div>
+                <div class="login-subtitle">Leads & Sales Intelligence · Sign in to continue</div>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -149,6 +255,17 @@ def normalize_phone_string(series):
         .str.replace(r'\.0$', '', regex=True)
         .str.replace(r'\D', '', regex=True)
     )
+
+def section_header(title, note=None):
+    note_html = f'<div class="vr-section-note">{note}</div>' if note else ''
+    st.markdown(
+        f'<div class="vr-section"><div class="vr-section-title">{title}</div>{note_html}</div>',
+        unsafe_allow_html=True
+    )
+
+def filter_header():
+    st.markdown('<div class="vr-filter"><div class="vr-filter-label">Dashboard controls</div>', unsafe_allow_html=True)
+
 
 @st.cache_data(ttl=60)
 def fetch_dashboard_data():
@@ -279,22 +396,40 @@ except Exception as e:
     is_ready = False
 
 if is_ready:
-    top_logo_col, top_title_col, top_btn_col = st.columns([0.6, 7.4, 2])
-    with top_logo_col:
-        st.image(DASHBOARD_LOGO_URL, width=70)
-    with top_title_col:
-        st.markdown('<div class="main-title" style="margin-top:-5px;">Vee Repairs - Leads and Sales conversion dashboard</div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="subtitle">Connected Account: <b>{st.session_state["user_email"]}</b> | Vee Repairs - lead generation and sales tracker: Updated every hour. Synced directly with the Leads and Sales files.</div>', unsafe_allow_html=True)
-    with top_btn_col:
-        if st.button("🚫Logout", use_container_width=True):
+    # Premium application header
+    hdr_left, hdr_right = st.columns([7.2, 2.8])
+    with hdr_left:
+        st.markdown(f"""
+        <div class="vr-header">
+            <div class="vr-brand">
+                <img src="{DASHBOARD_LOGO_URL}">
+                <div>
+                    <div class="vr-eyebrow">Vee Repairs · Operations Intelligence</div>
+                    <div class="vr-title">Leads & Sales Dashboard</div>
+                    <div class="vr-subtitle">Lead quality, sales verification and lead-to-sale conversion performance</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    with hdr_right:
+        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+        status_col, refresh_col = st.columns([1.35, 1])
+        with status_col:
+            st.markdown('<div style="text-align:right;padding-top:4px;"><span class="vr-status"><span class="vr-dot"></span> Data Connected</span></div>', unsafe_allow_html=True)
+            st.caption(f"Signed in · {st.session_state['user_email']}")
+        with refresh_col:
+            if st.button("↻ Refresh", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+        if st.button("Sign out", use_container_width=True):
             st.session_state["authenticated"] = False
             st.session_state["logged_login"] = False
             st.rerun()
 
     tab_leads, tab_sales, tab_conversion = st.tabs([
-        "📊 Leads Quality Breakdown", 
-        "💰 Sales Verification Tracker", 
-        "🔄 Leads Conversion Status"
+        "📊  Leads Quality", 
+        "💰  Sales Verification", 
+        "🔄  Lead Conversion"
     ])
     
     # ==========================================
@@ -688,6 +823,7 @@ if is_ready:
         rate_pend_unique = (c_pend_unique / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
         rate_pend_multi = (c_pend_multi / conv_tab_total_leads * 100) if conv_tab_total_leads > 0 else 0
 
+        section_header("Conversion Overview", "Unique conversion metrics shown first; transaction totals shown in brackets")
         # UI Executive KPI Block Output
         cc0, cc1, cc2, cc3, cc4, cc5 = st.columns(6)
         cc0.markdown(f'<div class="metric-box"><div class="metric-label">Total Leads Pool</div><div class="metric-number">{conv_tab_total_leads:,}</div></div>', unsafe_allow_html=True)
@@ -788,6 +924,7 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        section_header("Conversion Performance", "Consultant conversion volume and lead-origin trend")
         col_c_table, col_c_chart = st.columns([4, 5], gap="large")
         
         with col_c_table:
