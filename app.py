@@ -3,7 +3,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import numpy as np
 
 # --- 1. SET COMPACT GLOBAL CONFIG ---
@@ -267,6 +267,102 @@ def filter_header():
     st.markdown('<div class="vr-filter"><div class="vr-filter-label">Dashboard controls</div>', unsafe_allow_html=True)
 
 
+def _month_sort_key(value):
+    try:
+        return pd.to_datetime(value, format="%b %Y")
+    except Exception:
+        return pd.Timestamp.min
+
+
+def apply_tab_date_filter(frame, date_col, key_prefix, month_col="Month_Display"):
+    """Render an independent date selector and return the filtered frame."""
+    df = frame.copy()
+    date_series = pd.to_datetime(df[date_col], errors="coerce")
+    valid = date_series.notna()
+    df = df.loc[valid].copy()
+    df["__filter_date"] = date_series.loc[valid]
+
+    mode_options = [
+        "All Records",
+        "Today",
+        "This Week",
+        "This Month",
+        "Last Month",
+        "Month Dropdown",
+        "Custom Date Range",
+    ]
+
+    c_mode, c_month, c_start, c_end = st.columns([1.35, 1.45, 1.15, 1.15])
+    with c_mode:
+        selected_mode = st.selectbox(
+            "Date Filter",
+            mode_options,
+            key=f"{key_prefix}_date_mode",
+        )
+
+    month_values = []
+    if month_col in df.columns:
+        month_values = sorted(
+            [m for m in df[month_col].dropna().astype(str).unique() if m not in ["NaT Unknown", "Unknown", "nan", "None", ""]],
+            key=_month_sort_key,
+            reverse=True,
+        )
+
+    with c_month:
+        selected_month = st.selectbox(
+            "Month",
+            month_values if month_values else ["No months available"],
+            key=f"{key_prefix}_month_dropdown",
+            disabled=(selected_mode != "Month Dropdown"),
+        )
+
+    today = date.today()
+    with c_start:
+        custom_start = st.date_input(
+            "From",
+            value=today.replace(day=1),
+            key=f"{key_prefix}_custom_start",
+            disabled=(selected_mode != "Custom Date Range"),
+        )
+
+    with c_end:
+        custom_end = st.date_input(
+            "To",
+            value=today,
+            key=f"{key_prefix}_custom_end",
+            disabled=(selected_mode != "Custom Date Range"),
+        )
+
+    if selected_mode == "All Records":
+        return df.drop(columns=["__filter_date"])
+
+    if selected_mode == "Today":
+        mask = df["__filter_date"].dt.date == today
+    elif selected_mode == "This Week":
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        mask = df["__filter_date"].dt.date.between(week_start, week_end)
+    elif selected_mode == "This Month":
+        month_start = today.replace(day=1)
+        next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        month_end = next_month - timedelta(days=1)
+        mask = df["__filter_date"].dt.date.between(month_start, month_end)
+    elif selected_mode == "Last Month":
+        this_month_start = today.replace(day=1)
+        last_month_end = this_month_start - timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
+        mask = df["__filter_date"].dt.date.between(last_month_start, last_month_end)
+    elif selected_mode == "Month Dropdown":
+        mask = df[month_col].astype(str).eq(selected_month) if month_col in df.columns else pd.Series(False, index=df.index)
+    else:
+        if custom_start > custom_end:
+            st.warning("Start Date cannot be after End Date. Please select a valid custom range.")
+            return df.iloc[0:0].drop(columns=["__filter_date"])
+        mask = df["__filter_date"].dt.date.between(custom_start, custom_end)
+
+    return df.loc[mask].drop(columns=["__filter_date"])
+
+
 @st.cache_data(ttl=60)
 def fetch_dashboard_data():
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -440,17 +536,14 @@ if is_ready:
         with left_lead_filt:
             selected_source = st.selectbox("Lead Distribution Branch", ["All Sources", "Delhi", "Ranchi"], key="lead_src_filter")
         with right_lead_filt:
-            valid_lead_months = sorted(
-                [m for m in df_leads['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
-                key=lambda x: pd.to_datetime(x, format='%b %Y')
-            )
-            selected_lead_month = st.selectbox("Timeline Block", ["All Months"] + valid_lead_months, key="lead_mth_filter")
+            # Kept as a separate branch filter; date logic is handled independently below.
+            st.markdown('<div class="vr-filter-label">DATE CONTROL</div>', unsafe_allow_html=True)
 
-        df_l_filtered = df_leads.copy()
+        df_l_filtered = apply_tab_date_filter(df_leads, 'Parsed_Date', 'lead', month_col='Month_Display')
         if selected_source != "All Sources":
             df_l_filtered = df_l_filtered[df_l_filtered['Mapped_Source'] == selected_source]
-        if selected_lead_month != "All Months":
-            df_l_filtered = df_l_filtered[df_l_filtered['Month_Display'] == selected_lead_month]
+
+        selected_lead_month = None
 
         if not df_l_filtered.empty:
             raw_l_lb = df_l_filtered.groupby('Agent').agg(
@@ -502,7 +595,55 @@ if is_ready:
             else:
                 l_leaderboard = pd.DataFrame(columns=["Agent", "Total_Leads", "Approved", "Rejected", "Pending"])
 
-            st.dataframe(l_leaderboard.reset_index(drop=True), column_config={
+            # Percentage-based heat colouring:
+            # - stronger green = higher approved %
+            # - stronger red = higher rejected %
+            # The TOTAL row is highlighted using its aggregate percentages.
+            display_l = l_leaderboard.reset_index(drop=True).copy()
+            approved_pct_map = {
+                str(row['Agent']): (row['Approved'] / row['Total_Leads'] * 100 if row['Total_Leads'] else 0)
+                for _, row in raw_l_lb.iterrows()
+            }
+            rejected_pct_map = {
+                str(row['Agent']): (row['Rejected'] / row['Total_Leads'] * 100 if row['Total_Leads'] else 0)
+                for _, row in raw_l_lb.iterrows()
+            }
+            approved_pct_map['TOTAL'] = p_app
+            rejected_pct_map['TOTAL'] = p_rej
+
+            def _heat_cell(pct, rgb):
+                if pct <= 0:
+                    return ''
+                intensity = 0.08 + (min(float(pct), 100.0) / 100.0) * 0.42
+                return f'background-color: rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, {intensity:.3f}); color:#1f2937; font-weight:700;'
+
+            def _style_approved(col):
+                return [
+                    _heat_cell(approved_pct_map.get(str(agent_name), 0), (22, 163, 74))
+                    for agent_name in display_l['Agent']
+                ]
+
+            def _style_rejected(col):
+                return [
+                    _heat_cell(rejected_pct_map.get(str(agent_name), 0), (220, 38, 38))
+                    for agent_name in display_l['Agent']
+                ]
+
+            def _style_total(row):
+                styles = [''] * len(row)
+                if str(row['Agent']) == 'TOTAL':
+                    styles = ['font-weight:800; border-top:2px solid #cbd5e1;'] * len(row)
+                return styles
+
+            styled_l = (
+                display_l.style
+                .apply(_style_total, axis=1)
+                .apply(_style_approved, subset=['Approved'])
+                .apply(_style_rejected, subset=['Rejected'])
+            )
+
+            st.caption("Approval / rejection intensity reflects the percentage of each consultant\'s total leads.")
+            st.dataframe(styled_l, column_config={
                 "Agent": st.column_config.TextColumn("Consultant Name"),
                 "Total_Leads": st.column_config.NumberColumn("Total", format="%d"),
                 "Approved": st.column_config.TextColumn("🟢 Approved (%)"),
@@ -513,7 +654,7 @@ if is_ready:
         with col_l_chart:
             st.markdown('<div class="section-header">Leads Quality Trend</div>', unsafe_allow_html=True)
             if not df_l_filtered.empty:
-                if selected_lead_month != "All Months":
+                if st.session_state.get('lead_date_mode') != "All Records":
                     trend_df = df_l_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Quality_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
                     x_col, x_lbl = 'Day_Display', 'Date'
                 else:
@@ -534,15 +675,12 @@ if is_ready:
     with tab_sales:
         left_s_filt, right_s_space = st.columns([1, 1])
         with left_s_filt:
-            valid_sales_months = sorted(
-                [m for m in df_sales['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
-                key=lambda x: pd.to_datetime(x, format='%b %Y')
-            )
-            selected_sales_month = st.selectbox("Sales Month Filter", ["All Months"] + valid_sales_months, key="sales_mth_filter")
+            st.markdown('<div class="vr-filter-label">SALES FILTER</div>', unsafe_allow_html=True)
+        with right_s_space:
+            st.markdown('<div class="vr-filter-label">DATE CONTROL</div>', unsafe_allow_html=True)
 
-        df_s_filtered = df_sales.copy()
-        if selected_sales_month != "All Months":
-            df_s_filtered = df_s_filtered[df_s_filtered['Month_Display'] == selected_sales_month]
+        df_s_filtered = apply_tab_date_filter(df_sales, 'Parsed_Date', 'sales', month_col='Month_Display')
+        selected_sales_month = None
 
         if not df_s_filtered.empty:
             raw_s_lb = df_s_filtered.groupby('Agent').agg(
@@ -704,7 +842,7 @@ if is_ready:
         with col_s_chart:
             st.markdown('<div class="section-header">Sales Performance Trends</div>', unsafe_allow_html=True)
             if not df_s_filtered.empty:
-                if selected_sales_month != "All Months":
+                if st.session_state.get('sales_date_mode') != "All Records":
                     s_trend_df = df_s_filtered.groupby(['Parsed_Date', 'Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Parsed_Date')
                     sx_col, sx_lbl = 'Day_Display', 'Date'
                 else:
@@ -727,26 +865,24 @@ if is_ready:
         with left_c_filt:
             selected_conv_source = st.selectbox("Lead Distribution Branch", ["All Sources", "Delhi", "Ranchi"], key="conv_src_filter")
         with right_c_space:
-            valid_conv_months = sorted(
-                [m for m in df_leads['Month_Display'].unique() if pd.notna(m) and m != 'NaT Unknown' and m != 'Unknown'], 
-                key=lambda x: pd.to_datetime(x, format='%b %Y')
-            )
-            selected_conv_month = st.selectbox("Lead Month Filter", ["All Months"] + valid_conv_months, key="conv_mth_filter")
+            st.markdown('<div class="vr-filter-label">CONVERSION COHORT DATE</div>', unsafe_allow_html=True)
 
-        phone_lead_meta = df_leads.dropna(subset=['Clean_Phone']).drop_duplicates(subset=['Clean_Phone'])
+        # Date filtering in the conversion workspace follows the lead cohort date,
+        # matching the original Lead Month Filter behaviour.
+        df_conv_leads = apply_tab_date_filter(df_leads, 'Parsed_Date', 'conv', month_col='Month_Display')
+        selected_conv_month = None
+        if selected_conv_source != "All Sources":
+            df_conv_leads = df_conv_leads[df_conv_leads['Mapped_Source'] == selected_conv_source]
+
+        phone_lead_meta = df_conv_leads.dropna(subset=['Clean_Phone']).drop_duplicates(subset=['Clean_Phone'])
         phone_to_month = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Month_Display']))
         phone_to_pmonth = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Month']))
         phone_to_pdate = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Date']))
         phone_to_ddisplay = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Day_Display']))
         phone_to_source = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Mapped_Source']))
 
-        # Calculate Total Leads for this tab dynamically based on the active selection metrics
-        df_l_total_calc = df_leads.copy()
-        if selected_conv_source != "All Sources":
-            df_l_total_calc = df_l_total_calc[df_l_total_calc['Mapped_Source'] == selected_conv_source]
-        if selected_conv_month != "All Months":
-            df_l_total_calc = df_l_total_calc[df_l_total_calc['Month_Display'] == selected_conv_month]
-        conv_tab_total_leads = len(df_l_total_calc)
+        # Calculate Total Leads for this tab from the independently filtered lead cohort.
+        conv_tab_total_leads = len(df_conv_leads)
 
         df_c_filtered = df_sales.copy()
         
@@ -759,10 +895,8 @@ if is_ready:
         df_c_filtered['Lead_Day_Display'] = df_c_filtered['Clean_Phone'].map(phone_to_ddisplay)
         df_c_filtered['Lead_Mapped_Source'] = df_c_filtered['Clean_Phone'].map(phone_to_source)
 
-        if selected_conv_source != "All Sources":
-            df_c_filtered = df_c_filtered[df_c_filtered['Lead_Mapped_Source'] == selected_conv_source]
-        if selected_conv_month != "All Months":
-            df_c_filtered = df_c_filtered[df_c_filtered['Lead_Month_Display'] == selected_conv_month]
+        # The lead cohort filter has already been applied to phone_lead_meta above.
+        # Keep only sales whose phone belongs to that selected cohort.
 
         # ==============================================================================
         # DUAL-METRIC COMPILATION ENGINE (Unique Conversions vs Total Multi-Conversions)
@@ -977,7 +1111,7 @@ if is_ready:
         with col_c_chart:
             st.markdown('<div class="section-header">Lead Conversion Over Time (Total Volumes)</div>', unsafe_allow_html=True)
             if not df_c_filtered.empty:
-                if selected_conv_month != "All Months":
+                if st.session_state.get('conv_date_mode') != "All Records":
                     c_trend_df = df_c_filtered.groupby(['Lead_Parsed_Date', 'Lead_Day_Display', 'Cleaned_Payment_Status']).size().reset_index(name='Volume').sort_values('Lead_Parsed_Date')
                     cx_col, sx_lbl = 'Lead_Day_Display', 'Date'
                 else:
