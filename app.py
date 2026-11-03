@@ -278,7 +278,7 @@ def _monthly_raw_number(value):
 def _monthly_percentage(value):
     """Extract a percentage shown in parentheses, or return None when absent."""
     import re
-    match = re.search(r"\(([-+]?\d+(?:\.\d+)?)%\)", str(value))
+    match = re.search(r"[\(\[]\s*([-+]?\d+(?:\.\d+)?)%", str(value))
     return float(match.group(1)) if match else None
 
 
@@ -1107,6 +1107,133 @@ if is_ready:
                                     legend=dict(title=None, orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), height=380, margin=dict(l=15, r=15, t=10, b=10))
                 st.plotly_chart(fig_l, use_container_width=True, config={'displayModeBar': False})
 
+        # --- MONTHLY LEADS QUALITY SUMMARY (TAB 1) ---
+        section_header(
+            "Monthly Leads Quality Summary",
+            "Approved, rejected and pending percentages are measured against each month's allocated leads.",
+        )
+
+        if not df_l_filtered.empty:
+            monthly_quality_source = df_l_filtered.copy()
+            monthly_quality_source["Summary_Month"] = (
+                pd.to_datetime(monthly_quality_source["Parsed_Date"], errors="coerce")
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            monthly_quality_source = monthly_quality_source.dropna(subset=["Summary_Month"])
+
+            monthly_quality_raw = (
+                monthly_quality_source.groupby("Summary_Month")
+                .agg(
+                    Leads=("Agent", "count"),
+                    Approved=("Cleaned_Quality_Status", lambda values: (values == "Approved").sum()),
+                    Rejected=("Cleaned_Quality_Status", lambda values: (values == "Rejected").sum()),
+                    Pending=("Cleaned_Quality_Status", lambda values: (values == "Pending").sum()),
+                )
+                .reset_index()
+                .sort_values("Summary_Month", ascending=False)
+            )
+
+            quality_period_leads = int(monthly_quality_raw["Leads"].sum())
+            quality_period_approved = int(monthly_quality_raw["Approved"].sum())
+            quality_period_rejected = int(monthly_quality_raw["Rejected"].sum())
+            quality_period_pending = int(monthly_quality_raw["Pending"].sum())
+
+            monthly_quality_rows = []
+            monthly_quality_agent_details = {}
+
+            for _, quality_month_row in monthly_quality_raw.iterrows():
+                month_key = pd.Timestamp(quality_month_row["Summary_Month"])
+                month_leads = int(quality_month_row["Leads"])
+                month_approved = int(quality_month_row["Approved"])
+                month_rejected = int(quality_month_row["Rejected"])
+                month_pending = int(quality_month_row["Pending"])
+
+                monthly_quality_rows.append({
+                    "Month": month_key,
+                    "Leads": f"{month_leads:,} (100.0%)" if month_leads else "0 (0.0%)",
+                    "Approved": f"{month_approved:,} ({(month_approved / month_leads * 100) if month_leads else 0:.1f}%)",
+                    "Rejected": f"{month_rejected:,} ({(month_rejected / month_leads * 100) if month_leads else 0:.1f}%)",
+                    "Pending": f"{month_pending:,} ({(month_pending / month_leads * 100) if month_leads else 0:.1f}%)",
+                })
+
+                quality_month_source = monthly_quality_source[
+                    monthly_quality_source["Summary_Month"] == month_key
+                ].copy()
+                quality_agent_raw = (
+                    quality_month_source.groupby("Agent", dropna=False)
+                    .agg(
+                        Leads=("Agent", "count"),
+                        Approved=("Cleaned_Quality_Status", lambda values: (values == "Approved").sum()),
+                        Rejected=("Cleaned_Quality_Status", lambda values: (values == "Rejected").sum()),
+                        Pending=("Cleaned_Quality_Status", lambda values: (values == "Pending").sum()),
+                    )
+                    .reset_index()
+                    .sort_values(["Leads", "Agent"], ascending=[False, True])
+                )
+
+                quality_agent_rows = []
+                for _, quality_agent_row in quality_agent_raw.iterrows():
+                    agent_name = (
+                        str(quality_agent_row["Agent"])
+                        if pd.notna(quality_agent_row["Agent"]) and str(quality_agent_row["Agent"]).strip()
+                        else "Unassigned"
+                    )
+                    agent_leads = int(quality_agent_row["Leads"])
+                    agent_approved = int(quality_agent_row["Approved"])
+                    agent_rejected = int(quality_agent_row["Rejected"])
+                    agent_pending = int(quality_agent_row["Pending"])
+                    quality_agent_rows.append({
+                        "Agent": agent_name,
+                        "Leads": f"{agent_leads:,} (100.0%)" if agent_leads else "0 (0.0%)",
+                        "Approved": f"{agent_approved:,} ({(agent_approved / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                        "Rejected": f"{agent_rejected:,} ({(agent_rejected / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                        "Pending": f"{agent_pending:,} ({(agent_pending / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                    })
+
+                monthly_quality_agent_details[month_key.strftime("%Y-%m")] = pd.DataFrame(
+                    quality_agent_rows,
+                    columns=["Agent", "Leads", "Approved", "Rejected", "Pending"],
+                )
+
+            monthly_quality_display = pd.DataFrame(
+                monthly_quality_rows,
+                columns=["Month", "Leads", "Approved", "Rejected", "Pending"],
+            )
+            monthly_quality_total = pd.DataFrame([{
+                "Month": "TOTAL",
+                "Leads": f"{quality_period_leads:,} (100.0%)" if quality_period_leads else "0 (0.0%)",
+                "Approved": f"{quality_period_approved:,} ({(quality_period_approved / quality_period_leads * 100) if quality_period_leads else 0:.1f}%)",
+                "Rejected": f"{quality_period_rejected:,} ({(quality_period_rejected / quality_period_leads * 100) if quality_period_leads else 0:.1f}%)",
+                "Pending": f"{quality_period_pending:,} ({(quality_period_pending / quality_period_leads * 100) if quality_period_leads else 0:.1f}%)",
+            }])
+
+            quality_gradient_mode = st.radio(
+                "Gradient intensity",
+                ["Based on values", "Based on %"],
+                horizontal=True,
+                index=1,
+                key="leads_quality_monthly_gradient_mode",
+                help="Choose whether each cell's colour intensity follows its lead count or displayed percentage.",
+            )
+            quality_status_colours = {
+                "Approved": "#16a34a",
+                "Rejected": "#dc2626",
+                "Pending": "#eab308",
+            }
+            st.caption("Use the + button beside a month to reveal lead-agent quality performance inline.")
+            render_expandable_monthly_summary(
+                monthly_quality_display,
+                monthly_quality_total,
+                monthly_quality_agent_details,
+                quality_status_colours,
+                quality_gradient_mode,
+                "vee-leads-quality-monthly-expandable",
+                detail_first_column_label="Lead Agent",
+            )
+        else:
+            st.info("No lead quality records are available for the selected date and branch filters.")
+
     # ==========================================
     # WORKSPACE TAB 2: SALES TRACKER ENGINE 
     # ==========================================
@@ -1593,7 +1720,8 @@ if is_ready:
 
             monthly_month_keys = sorted(monthly_lead_counts.index.tolist(), reverse=True)
             monthly_conv_rows = []
-            monthly_conv_agent_details = {}
+            monthly_conv_lead_agent_details = {}
+            monthly_conv_sales_agent_details = {}
             period_leads_total = int(monthly_lead_counts.sum())
             period_converted_total = int(monthly_conv_source["Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
             period_live_total = int(monthly_conv_source.loc[monthly_conv_source["Cleaned_Payment_Status"] == "Live", "Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
@@ -1688,10 +1816,98 @@ if is_ready:
                         "Total Invoiced Revenue": f"£{agent_total_revenue:,.2f} ({(agent_total_revenue / month_total_revenue * 100) if month_total_revenue else 0:.1f}%)",
                     })
 
-                monthly_conv_agent_details[month_key] = pd.DataFrame(
+                monthly_conv_lead_agent_details[month_key] = pd.DataFrame(
                     agent_detail_rows,
                     columns=[
                         "Agent", "Leads", "Sales (Converted)", "Live", "Cancelled", "Pending",
+                        "Delhi Revenue", "Ranchi Revenue", "Total Invoiced Revenue",
+                    ],
+                )
+
+                # Sales-agent view: attribute converted customers, all sales
+                # transactions, status outcomes and invoiced revenue to the Agent
+                # recorded on the Sales worksheet. This remains scoped to the same
+                # filtered lead cohort and month as the main conversion summary.
+                sales_agent_source = month_conversions.copy()
+                if not sales_agent_source.empty:
+                    sales_agent_source["Sales_Agent"] = (
+                        sales_agent_source["Agent"].fillna("Unassigned").astype(str).str.strip()
+                    )
+                    sales_agent_source.loc[
+                        sales_agent_source["Sales_Agent"].isin(["", "nan", "None"]),
+                        "Sales_Agent",
+                    ] = "Unassigned"
+                    sales_agent_names = (
+                        sales_agent_source.groupby("Sales_Agent").size()
+                        .sort_values(ascending=False).index.tolist()
+                    )
+                else:
+                    sales_agent_source["Sales_Agent"] = pd.Series(dtype="object")
+                    sales_agent_names = []
+
+                sales_agent_detail_rows = []
+                for sales_agent_name in sales_agent_names:
+                    agent_sales_rows = sales_agent_source[
+                        sales_agent_source["Sales_Agent"] == sales_agent_name
+                    ].copy()
+                    agent_transactions = int(len(agent_sales_rows))
+                    agent_unique_customers = int(agent_sales_rows["Clean_Phone"].nunique())
+
+                    agent_live_rows = agent_sales_rows[
+                        agent_sales_rows["Cleaned_Payment_Status"] == "Live"
+                    ]
+                    agent_cancelled_rows = agent_sales_rows[
+                        agent_sales_rows["Cleaned_Payment_Status"] == "Cancelled"
+                    ]
+                    agent_pending_rows = agent_sales_rows[
+                        agent_sales_rows["Cleaned_Payment_Status"] == "Pending"
+                    ]
+                    agent_live_unique = int(agent_live_rows["Clean_Phone"].nunique())
+                    agent_cancelled_unique = int(agent_cancelled_rows["Clean_Phone"].nunique())
+                    agent_pending_unique = int(agent_pending_rows["Clean_Phone"].nunique())
+                    agent_live_transactions = int(len(agent_live_rows))
+                    agent_cancelled_transactions = int(len(agent_cancelled_rows))
+                    agent_pending_transactions = int(len(agent_pending_rows))
+
+                    agent_sales_revenue = agent_sales_rows[
+                        agent_sales_rows["Agent"].notna()
+                    ].copy()
+                    agent_revenue_by_branch = (
+                        agent_sales_revenue.groupby("Lead_Mapped_Source")["Live_Amount"].sum().to_dict()
+                        if not agent_sales_revenue.empty else {}
+                    )
+                    agent_delhi_revenue = float(agent_revenue_by_branch.get("Delhi", 0.0))
+                    agent_ranchi_revenue = float(agent_revenue_by_branch.get("Ranchi", 0.0))
+                    agent_total_revenue = agent_delhi_revenue + agent_ranchi_revenue
+
+                    sales_agent_detail_rows.append({
+                        "Agent": str(sales_agent_name),
+                        "Unique Customers": f"{agent_unique_customers:,}",
+                        "Sales (Transactions)": f"{agent_transactions:,}",
+                        "Live": (
+                            f"{agent_live_unique:,} ({agent_live_transactions:,}) — "
+                            f"[{(agent_live_unique / agent_unique_customers * 100) if agent_unique_customers else 0:.1f}% | "
+                            f"{(agent_live_transactions / agent_transactions * 100) if agent_transactions else 0:.1f}%]"
+                        ),
+                        "Cancelled": (
+                            f"{agent_cancelled_unique:,} ({agent_cancelled_transactions:,}) — "
+                            f"[{(agent_cancelled_unique / agent_unique_customers * 100) if agent_unique_customers else 0:.1f}% | "
+                            f"{(agent_cancelled_transactions / agent_transactions * 100) if agent_transactions else 0:.1f}%]"
+                        ),
+                        "Pending": (
+                            f"{agent_pending_unique:,} ({agent_pending_transactions:,}) — "
+                            f"[{(agent_pending_unique / agent_unique_customers * 100) if agent_unique_customers else 0:.1f}% | "
+                            f"{(agent_pending_transactions / agent_transactions * 100) if agent_transactions else 0:.1f}%]"
+                        ),
+                        "Delhi Revenue": f"£{agent_delhi_revenue:,.2f} ({(agent_delhi_revenue / agent_total_revenue * 100) if agent_total_revenue else 0:.1f}%)",
+                        "Ranchi Revenue": f"£{agent_ranchi_revenue:,.2f} ({(agent_ranchi_revenue / agent_total_revenue * 100) if agent_total_revenue else 0:.1f}%)",
+                        "Total Invoiced Revenue": f"£{agent_total_revenue:,.2f} ({(agent_total_revenue / month_total_revenue * 100) if month_total_revenue else 0:.1f}%)",
+                    })
+
+                monthly_conv_sales_agent_details[month_key] = pd.DataFrame(
+                    sales_agent_detail_rows,
+                    columns=[
+                        "Agent", "Unique Customers", "Sales (Transactions)", "Live", "Cancelled", "Pending",
                         "Delhi Revenue", "Ranchi Revenue", "Total Invoiced Revenue",
                     ],
                 )
@@ -1734,28 +1950,55 @@ if is_ready:
                 "Cancelled": "#dc2626",
                 "Pending": "#eab308",
             }
-            conversion_gradient_mode = st.radio(
-                "Gradient intensity",
-                ["Based on values", "Based on %"],
-                horizontal=True,
-                index=1,
-                key="conversion_monthly_gradient_mode",
-                help="Choose whether each cell's colour intensity follows its count / revenue or its displayed percentage.",
-            )
-            st.caption("Use the + button beside a month to reveal lead-agent conversion and revenue performance inline.")
+            control_gradient, control_agent_view = st.columns([1.0, 1.25])
+            with control_gradient:
+                conversion_gradient_mode = st.radio(
+                    "Gradient intensity",
+                    ["Based on values", "Based on %"],
+                    horizontal=True,
+                    index=1,
+                    key="conversion_monthly_gradient_mode",
+                    help="Choose whether each cell's colour intensity follows its count / revenue or its displayed percentage.",
+                )
+            with control_agent_view:
+                conversion_agent_view = st.radio(
+                    "Agent-wise breakdown",
+                    ["Lead Agents", "Sales Agents"],
+                    horizontal=True,
+                    index=0,
+                    key="conversion_monthly_agent_view",
+                    help="Lead Agents are the original owners in the Leads sheet. Sales Agents are the agents recorded against sales transactions.",
+                )
+
+            if conversion_agent_view == "Sales Agents":
+                selected_conversion_details = monthly_conv_sales_agent_details
+                selected_detail_label = "Sales Agent"
+                st.caption(
+                    "Sales-agent view attributes the selected lead cohort's converted customers, all sales transactions, "
+                    "status outcomes and invoiced revenue to the Agent recorded on the Sales worksheet."
+                )
+            else:
+                selected_conversion_details = monthly_conv_lead_agent_details
+                selected_detail_label = "Lead Agent"
+                st.caption(
+                    "Lead-agent view attributes the monthly lead pool and its conversion outcomes to the original "
+                    "Agent recorded on the Leads worksheet."
+                )
+
+            st.caption("Use the + button beside a month to reveal agent-wise conversion and revenue performance inline.")
             render_expandable_monthly_summary(
                 monthly_conv_display,
                 monthly_conv_total,
-                monthly_conv_agent_details,
+                selected_conversion_details,
                 conversion_status_colours,
                 conversion_gradient_mode,
                 "vee-conversion-monthly-expandable",
-                detail_first_column_label="Lead Agent",
+                detail_first_column_label=selected_detail_label,
             )
             st.caption(
-                "Conversion counts are unique-phone metrics, consistent with the primary conversion KPI. "
-                "Live / Cancelled / Pending percentages are measured against Leads. Revenue is transaction-based; "
-                "Delhi and Ranchi percentages are each branch's share of monthly revenue."
+                "Monthly summary counts remain based on the lead cohort and distinct phone numbers. In Sales Agents view, "
+                "unique-customer counts are deduplicated within each sales agent; repeat sales are shown in transaction counts. "
+                "Revenue is transaction-based and Delhi / Ranchi values follow the originating lead branch."
             )
         else:
             st.info("No leads are available for the selected conversion cohort date range.")
