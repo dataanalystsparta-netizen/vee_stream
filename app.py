@@ -135,6 +135,10 @@ div[data-testid="stBlock"] { padding: 0 !important; }
 }
 [data-testid="stDataFrame"] [role="gridcell"] { font-size:11px !important; }
 div[data-testid="stTable"] th { background:#fef9c3 !important; color:#334155 !important; }
+[data-testid="stRadio"] { margin: -4px 0 5px 0 !important; }
+[data-testid="stRadio"] > label { font-size:10px !important; font-weight:700 !important; color:#64748b !important; margin-bottom:2px !important; }
+[data-testid="stRadio"] [role="radiogroup"] { gap:12px !important; }
+[data-testid="stRadio"] [role="radio"] { font-size:10px !important; }
 
 .stTabs [data-baseweb="tab-list"] {
     gap:5px; background:#fff; border:1px solid var(--vr-line);
@@ -257,28 +261,78 @@ def normalize_phone_string(series):
     )
 
 
-def _monthly_cell_gradient(value, base_hex):
-    """Return a white-to-status-colour gradient driven by the cell percentage."""
+def _monthly_raw_number(value):
+    """Read the leading numeric value from display strings such as £1,250.00 (8.5%)."""
+    import re
+    match = re.search(r"[-+]?(?:\d[\d,]*\.?\d*|\.\d+)", str(value))
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _monthly_percentage(value):
+    """Extract a percentage shown in parentheses, or return None when absent."""
     import re
     match = re.search(r"\(([-+]?\d+(?:\.\d+)?)%\)", str(value))
-    pct = float(match.group(1)) if match else 0.0
-    # Keep small values visible while making high percentages distinctly darker.
-    strength = 0.12 + (max(0.0, min(100.0, pct)) / 100.0) * 0.78
+    return float(match.group(1)) if match else None
+
+
+def _monthly_cell_gradient(value, base_hex, mode="Based on %", value_min=None, value_max=None):
+    """Return a white-to-status-colour gradient based on either raw values or percentages."""
+    if mode == "Based on values":
+        metric = _monthly_raw_number(value)
+        if metric is None:
+            return ""
+        if value_min is None or value_max is None:
+            normalized = 0.0
+        elif value_max == value_min:
+            normalized = 0.5
+        else:
+            normalized = (metric - value_min) / (value_max - value_min)
+        normalized = max(0.0, min(1.0, normalized))
+    else:
+        metric = _monthly_percentage(value)
+        # A cell without a displayed percentage (for example, the Sales count)
+        # remains unfilled in percentage mode rather than implying a false rate.
+        if metric is None:
+            return ""
+        normalized = max(0.0, min(100.0, metric)) / 100.0
+
+    # Keep the light end visible while making higher values distinctly darker.
+    strength = 0.12 + normalized * 0.78
     base = tuple(int(base_hex[i:i + 2], 16) for i in (1, 3, 5))
     rgb = tuple(round(255 - (255 - channel) * strength) for channel in base)
     return f"background-color: rgb({rgb[0]}, {rgb[1]}, {rgb[2]}); color: #172033;"
 
 
-def style_monthly_summary(frame, status_colours, total=False):
-    """Apply percentage-weighted status colours without deprecated Styler.applymap()."""
+def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=None, total=False):
+    """Style a monthly summary by raw values or displayed percentages."""
+    import numpy as np
+
     styled = frame.style
+    scale_frame = scale_frame if scale_frame is not None else frame
     for column in frame.columns:
+        # Month is a label, not a metric, so it is intentionally left uncoloured.
+        if column == "Month":
+            continue
+
         colour = status_colours.get(column, "#3b82f6")
-        # Styler.apply() is supported across pandas versions, including versions
-        # where Styler.applymap() has been removed.
+        values_for_scale = [
+            _monthly_raw_number(value)
+            for value in scale_frame[column].tolist()
+            if column in scale_frame.columns
+        ] if mode == "Based on values" else []
+        values_for_scale = [v for v in values_for_scale if v is not None and np.isfinite(v)]
+        value_min = min(values_for_scale) if values_for_scale else None
+        value_max = max(values_for_scale) if values_for_scale else None
+
+        # Styler.apply() works on current pandas versions where applymap() is removed.
         styled = styled.apply(
-            lambda values, c=colour: [
-                _monthly_cell_gradient(value, c) for value in values
+            lambda values, c=colour, m=mode, lo=value_min, hi=value_max: [
+                _monthly_cell_gradient(value, c, m, lo, hi) for value in values
             ],
             axis=0,
             subset=[column],
@@ -829,15 +883,32 @@ if is_ready:
                 "Cancelled": "#dc2626",
                 "Pending": "#eab308",
             }
+            sales_gradient_mode = st.radio(
+                "Gradient intensity",
+                ["Based on values", "Based on %"],
+                horizontal=True,
+                index=1,
+                key="sales_monthly_gradient_mode",
+                help="Choose whether each cell's colour intensity follows its count / amount or its displayed percentage.",
+            )
+            sales_gradient_scale = pd.concat(
+                [monthly_summary_display, monthly_total_display], ignore_index=True
+            )
             st.dataframe(
-                style_monthly_summary(monthly_summary_display, sales_status_colours),
+                style_monthly_summary(
+                    monthly_summary_display, sales_status_colours,
+                    mode=sales_gradient_mode, scale_frame=sales_gradient_scale,
+                ),
                 column_config=sales_month_columns,
                 hide_index=True,
                 use_container_width=True,
                 height=max(110, min(420, 42 + 36 * len(monthly_summary_display))),
             )
             st.dataframe(
-                style_monthly_summary(monthly_total_display, sales_status_colours, total=True),
+                style_monthly_summary(
+                    monthly_total_display, sales_status_colours,
+                    mode=sales_gradient_mode, scale_frame=sales_gradient_scale, total=True,
+                ),
                 column_config={
                     "Month": st.column_config.TextColumn("Month"),
                     **{k: v for k, v in sales_month_columns.items() if k != "Month"},
@@ -1228,15 +1299,32 @@ if is_ready:
                 "Cancelled": "#dc2626",
                 "Pending": "#eab308",
             }
+            conversion_gradient_mode = st.radio(
+                "Gradient intensity",
+                ["Based on values", "Based on %"],
+                horizontal=True,
+                index=1,
+                key="conversion_monthly_gradient_mode",
+                help="Choose whether each cell's colour intensity follows its count / revenue or its displayed percentage.",
+            )
+            conversion_gradient_scale = pd.concat(
+                [monthly_conv_display, monthly_conv_total], ignore_index=True
+            )
             st.dataframe(
-                style_monthly_summary(monthly_conv_display, conversion_status_colours),
+                style_monthly_summary(
+                    monthly_conv_display, conversion_status_colours,
+                    mode=conversion_gradient_mode, scale_frame=conversion_gradient_scale,
+                ),
                 column_config=conv_month_columns,
                 hide_index=True,
                 use_container_width=True,
                 height=max(110, min(440, 42 + 36 * len(monthly_conv_display))),
             )
             st.dataframe(
-                style_monthly_summary(monthly_conv_total, conversion_status_colours, total=True),
+                style_monthly_summary(
+                    monthly_conv_total, conversion_status_colours,
+                    mode=conversion_gradient_mode, scale_frame=conversion_gradient_scale, total=True,
+                ),
                 column_config={
                     "Month": st.column_config.TextColumn("Month"),
                     **{k: v for k, v in conv_month_columns.items() if k != "Month"},
