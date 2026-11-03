@@ -354,14 +354,24 @@ def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=
     return styled.set_properties(**{"font-weight": "600"})
 
 
+def _monthly_html_is_zero_metric(value, column):
+    """Return True when a displayed metric's leading numeric value is zero."""
+    if column in ("Month", "Agent"):
+        return False
+    number = _monthly_raw_number(value)
+    return number is not None and abs(number) < 1e-12
+
+
 def _monthly_html_display_value(value, column):
-    """Format the date field consistently with the existing monthly summary tables."""
+    """Format dates and display zero-valued metrics as a dash."""
     if column == "Month" and isinstance(value, (pd.Timestamp, datetime, date)):
         try:
             return pd.Timestamp(value).strftime("%b %Y")
         except Exception:
             pass
     if pd.isna(value):
+        return "-"
+    if _monthly_html_is_zero_metric(value, column):
         return "-"
     return str(value)
 
@@ -445,6 +455,10 @@ def render_expandable_monthly_summary(
         style = ""
         if total:
             style = "background-color:#ffffff;color:#172033;font-weight:800;"
+        elif _monthly_html_is_zero_metric(value, column):
+            # Zero-value cells are deliberately neutral: show a dash on white,
+            # without a status gradient in either colour mode.
+            style = "background-color:#ffffff;color:#64748b;"
         else:
             gradient_style = _monthly_html_cell_style(
                 value, column, status_colours, gradient_mode, scale_frame
