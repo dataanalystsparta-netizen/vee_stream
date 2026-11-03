@@ -309,10 +309,23 @@ def _monthly_cell_gradient(value, base_hex, mode="Based on %", value_min=None, v
 
 
 def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=None, total=False):
-    """Style a monthly summary by raw values or displayed percentages."""
+    """Style monthly rows by raw values or percentages; keep TOTAL completely uncoloured."""
     import numpy as np
 
     styled = frame.style
+
+    # TOTAL is rendered in its own one-row table. Keep it visually distinct with
+    # bold text and a top border only; never apply a gradient or background fill.
+    if total:
+        return styled.set_properties(**{
+            "font-weight": "800",
+            "border-top": "2px solid #64748b",
+            "background-color": "#ffffff",
+            "color": "#172033",
+        })
+
+    # The scale must come exclusively from the monthly rows. Aggregate totals
+    # must never influence the intensity assigned to individual months.
     scale_frame = scale_frame if scale_frame is not None else frame
     for column in frame.columns:
         # Month is a label, not a metric, so it is intentionally left uncoloured.
@@ -323,13 +336,12 @@ def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=
         values_for_scale = [
             _monthly_raw_number(value)
             for value in scale_frame[column].tolist()
-            if column in scale_frame.columns
-        ] if mode == "Based on values" else []
+        ] if mode == "Based on values" and column in scale_frame.columns else []
         values_for_scale = [v for v in values_for_scale if v is not None and np.isfinite(v)]
         value_min = min(values_for_scale) if values_for_scale else None
         value_max = max(values_for_scale) if values_for_scale else None
 
-        # Styler.apply() works on current pandas versions where applymap() is removed.
+        # Styler.apply() works on pandas versions where applymap() is removed.
         styled = styled.apply(
             lambda values, c=colour, m=mode, lo=value_min, hi=value_max: [
                 _monthly_cell_gradient(value, c, m, lo, hi) for value in values
@@ -337,10 +349,7 @@ def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=
             axis=0,
             subset=[column],
         )
-    styled = styled.set_properties(**{"font-weight": "600"})
-    if total:
-        styled = styled.set_properties(**{"font-weight": "800", "border-top": "2px solid #64748b"})
-    return styled
+    return styled.set_properties(**{"font-weight": "600"})
 
 def section_header(title, note=None):
     note_html = f'<div class="vr-section-note">{note}</div>' if note else ''
@@ -891,9 +900,8 @@ if is_ready:
                 key="sales_monthly_gradient_mode",
                 help="Choose whether each cell's colour intensity follows its count / amount or its displayed percentage.",
             )
-            sales_gradient_scale = pd.concat(
-                [monthly_summary_display, monthly_total_display], ignore_index=True
-            )
+            # Scale only against monthly rows; the TOTAL row is excluded.
+            sales_gradient_scale = monthly_summary_display
             st.dataframe(
                 style_monthly_summary(
                     monthly_summary_display, sales_status_colours,
@@ -1307,9 +1315,8 @@ if is_ready:
                 key="conversion_monthly_gradient_mode",
                 help="Choose whether each cell's colour intensity follows its count / revenue or its displayed percentage.",
             )
-            conversion_gradient_scale = pd.concat(
-                [monthly_conv_display, monthly_conv_total], ignore_index=True
-            )
+            # Scale only against monthly rows; the TOTAL row is excluded.
+            conversion_gradient_scale = monthly_conv_display
             st.dataframe(
                 style_monthly_summary(
                     monthly_conv_display, conversion_status_colours,
