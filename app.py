@@ -716,6 +716,98 @@ if is_ready:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # --- MONTHLY SALES SUMMARY (TAB 2) ---
+        section_header(
+            "Monthly Sales Summary",
+            "Status percentages are based on each month's sales; invoiced percentage is the month's share of filtered-period invoiced revenue.",
+        )
+
+        if not df_s_filtered.empty:
+            monthly_source = df_s_filtered.copy()
+            # Group by the actual sales date so custom date ranges are represented
+            # against the month in which each sale was recorded.
+            monthly_source["Summary_Month"] = (
+                pd.to_datetime(monthly_source["Parsed_Date"], errors="coerce")
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            monthly_source = monthly_source.dropna(subset=["Summary_Month"])
+
+            monthly_raw = (
+                monthly_source.groupby("Summary_Month", dropna=True)
+                .agg(
+                    Sales=("Cleaned_Payment_Status", "size"),
+                    Accepted_Paid=("Cleaned_Payment_Status", lambda x: (x == "Live").sum()),
+                    Cancelled=("Cleaned_Payment_Status", lambda x: (x == "Cancelled").sum()),
+                    Pending=("Cleaned_Payment_Status", lambda x: (x == "Pending").sum()),
+                    Invoiced=("Live_Amount", "sum"),
+                )
+                .reset_index()
+                .sort_values("Summary_Month", ascending=False)
+            )
+
+            summary_sales_total = int(monthly_raw["Sales"].sum())
+            summary_invoiced_total = float(monthly_raw["Invoiced"].sum())
+            monthly_rows = []
+
+            for _, month_row in monthly_raw.iterrows():
+                month_sales = int(month_row["Sales"])
+                month_invoiced = float(month_row["Invoiced"])
+                accepted_count = int(month_row["Accepted_Paid"])
+                cancelled_count = int(month_row["Cancelled"])
+                pending_count = int(month_row["Pending"])
+
+                monthly_rows.append({
+                    "Month": pd.Timestamp(month_row["Summary_Month"]).strftime("%b %Y"),
+                    "Sales": f"{month_sales:,}",
+                    "Accepted (Paid)": f"{accepted_count:,} ({(accepted_count / month_sales * 100) if month_sales else 0:.1f}%)",
+                    "Cancelled": f"{cancelled_count:,} ({(cancelled_count / month_sales * 100) if month_sales else 0:.1f}%)",
+                    "Pending": f"{pending_count:,} ({(pending_count / month_sales * 100) if month_sales else 0:.1f}%)",
+                    "Amount (Invoiced)": f"£{month_invoiced:,.2f} ({(month_invoiced / summary_invoiced_total * 100) if summary_invoiced_total else 0:.1f}%)",
+                })
+
+            # Period total: status percentages use all filtered sales; invoiced is 100% of the period total.
+            total_accepted = int(monthly_raw["Accepted_Paid"].sum())
+            total_cancelled = int(monthly_raw["Cancelled"].sum())
+            total_pending = int(monthly_raw["Pending"].sum())
+            monthly_rows.append({
+                "Month": "TOTAL",
+                "Sales": f"{summary_sales_total:,}",
+                "Accepted (Paid)": f"{total_accepted:,} ({(total_accepted / summary_sales_total * 100) if summary_sales_total else 0:.1f}%)",
+                "Cancelled": f"{total_cancelled:,} ({(total_cancelled / summary_sales_total * 100) if summary_sales_total else 0:.1f}%)",
+                "Pending": f"{total_pending:,} ({(total_pending / summary_sales_total * 100) if summary_sales_total else 0:.1f}%)",
+                "Amount (Invoiced)": f"£{summary_invoiced_total:,.2f} ({100.0 if summary_invoiced_total else 0.0:.1f}%)",
+            })
+
+            monthly_summary_display = pd.DataFrame(
+                monthly_rows,
+                columns=["Month", "Sales", "Accepted (Paid)", "Cancelled", "Pending", "Amount (Invoiced)"],
+            )
+
+            def _style_monthly_total(row):
+                if str(row.get("Month", "")) == "TOTAL":
+                    return [
+                        "background-color:#fef9c3; color:#713f12; font-weight:800; border-top:2px solid #eab308;"
+                    ] * len(row)
+                return [""] * len(row)
+
+            st.dataframe(
+                monthly_summary_display.style.apply(_style_monthly_total, axis=1),
+                column_config={
+                    "Month": st.column_config.TextColumn("Month"),
+                    "Sales": st.column_config.TextColumn("Sales", help="Total sales recorded in the month."),
+                    "Accepted (Paid)": st.column_config.TextColumn("Accepted (Paid)", help="Count and percentage of that month's sales."),
+                    "Cancelled": st.column_config.TextColumn("Cancelled", help="Count and percentage of that month's sales."),
+                    "Pending": st.column_config.TextColumn("Pending", help="Count and percentage of that month's sales."),
+                    "Amount (Invoiced)": st.column_config.TextColumn("Amount (Invoiced)", help="Live invoiced amount and its share of total invoiced revenue in the selected date range."),
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=max(160, min(420, 42 + 36 * len(monthly_summary_display))),
+            )
+        else:
+            st.info("No sales records are available for the selected date range.")
+
         # --- ADJUSTED DYNAMIC QUALITY STATUS BREAKDOWN (TAB 2) ---
         if 'Quality status' in df_s_filtered.columns and not df_s_filtered.empty:
             df_s_filtered['Normalized_Quality'] = df_s_filtered['Quality status'].astype(str).str.strip()
