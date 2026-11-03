@@ -329,7 +329,7 @@ def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=
     scale_frame = scale_frame if scale_frame is not None else frame
     for column in frame.columns:
         # Month is a label, not a metric, so it is intentionally left uncoloured.
-        if column == "Month":
+        if column in ("Month", "Agent"):
             continue
 
         colour = status_colours.get(column, "#3b82f6")
@@ -902,16 +902,88 @@ if is_ready:
             )
             # Scale only against monthly rows; the TOTAL row is excluded.
             sales_gradient_scale = monthly_summary_display
-            st.dataframe(
-                style_monthly_summary(
-                    monthly_summary_display, sales_status_colours,
-                    mode=sales_gradient_mode, scale_frame=sales_gradient_scale,
-                ),
-                column_config=sales_month_columns,
-                hide_index=True,
-                use_container_width=True,
-                height=max(110, min(420, 42 + 36 * len(monthly_summary_display))),
-            )
+            st.caption("Expand any month to see the agent-wise performance for that month.")
+            for _, monthly_display_row in monthly_summary_display.iterrows():
+                month_key = pd.Timestamp(monthly_display_row["Month"])
+                month_rows_source = monthly_source[monthly_source["Summary_Month"] == month_key].copy()
+                month_sales = int(monthly_display_row["Sales"].replace(",", ""))
+                month_accepted = monthly_display_row["Accepted (Paid)"]
+                month_cancelled_display = monthly_display_row["Cancelled"]
+                month_pending_display = monthly_display_row["Pending"]
+                month_invoiced_display = monthly_display_row["Amount (Invoiced)"].split(" (")[0]
+                expander_label = (
+                    f"{month_key.strftime('%b %Y')}  |  Sales: {month_sales:,}"
+                    f"  |  Accepted: {month_accepted}"
+                    f"  |  Cancelled: {month_cancelled_display}"
+                    f"  |  Pending: {month_pending_display}"
+                    f"  |  Invoiced: {month_invoiced_display}"
+                )
+                with st.expander(expander_label, expanded=False):
+                    month_display_frame = pd.DataFrame([monthly_display_row])
+                    st.dataframe(
+                        style_monthly_summary(
+                            month_display_frame, sales_status_colours,
+                            mode=sales_gradient_mode, scale_frame=sales_gradient_scale,
+                        ),
+                        column_config=sales_month_columns,
+                        hide_index=True,
+                        use_container_width=True,
+                        height=78,
+                    )
+
+                    agent_month_raw = (
+                        month_rows_source.groupby("Agent", dropna=False)
+                        .agg(
+                            Sales=("Agent", "count"),
+                            Accepted_Paid=("Cleaned_Payment_Status", lambda x: (x == "Live").sum()),
+                            Cancelled=("Cleaned_Payment_Status", lambda x: (x == "Cancelled").sum()),
+                            Pending=("Cleaned_Payment_Status", lambda x: (x == "Pending").sum()),
+                            Invoiced=("Live_Amount", "sum"),
+                        )
+                        .reset_index()
+                        .sort_values(["Sales", "Agent"], ascending=[False, True])
+                    )
+                    agent_month_rows = []
+                    for _, agent_row in agent_month_raw.iterrows():
+                        agent_name = str(agent_row["Agent"]) if pd.notna(agent_row["Agent"]) else "Unassigned"
+                        agent_sales = int(agent_row["Sales"])
+                        agent_accepted = int(agent_row["Accepted_Paid"])
+                        agent_cancelled = int(agent_row["Cancelled"])
+                        agent_pending = int(agent_row["Pending"])
+                        agent_invoiced = float(agent_row["Invoiced"])
+                        agent_month_rows.append({
+                            "Agent": agent_name,
+                            "Sales": f"{agent_sales:,}",
+                            "Accepted (Paid)": f"{agent_accepted:,} ({(agent_accepted / agent_sales * 100) if agent_sales else 0:.1f}%)",
+                            "Cancelled": f"{agent_cancelled:,} ({(agent_cancelled / agent_sales * 100) if agent_sales else 0:.1f}%)",
+                            "Pending": f"{agent_pending:,} ({(agent_pending / agent_sales * 100) if agent_sales else 0:.1f}%)",
+                            "Amount (Invoiced)": f"£{agent_invoiced:,.2f} ({(agent_invoiced / summary_invoiced_total * 100) if summary_invoiced_total else 0:.1f}%)",
+                        })
+                    agent_month_display = pd.DataFrame(
+                        agent_month_rows,
+                        columns=["Agent", "Sales", "Accepted (Paid)", "Cancelled", "Pending", "Amount (Invoiced)"],
+                    )
+                    st.markdown("**Agent-wise performance**")
+                    if not agent_month_display.empty:
+                        st.dataframe(
+                            style_monthly_summary(
+                                agent_month_display, sales_status_colours,
+                                mode=sales_gradient_mode, scale_frame=agent_month_display,
+                            ),
+                            column_config={
+                                "Agent": st.column_config.TextColumn("Agent"),
+                                "Sales": st.column_config.TextColumn("Sales"),
+                                "Accepted (Paid)": st.column_config.TextColumn("Accepted (Paid)"),
+                                "Cancelled": st.column_config.TextColumn("Cancelled"),
+                                "Pending": st.column_config.TextColumn("Pending"),
+                                "Amount (Invoiced)": st.column_config.TextColumn("Amount (Invoiced)"),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            height=max(110, min(360, 42 + 36 * len(agent_month_display))),
+                        )
+                    else:
+                        st.info("No agent-level sales data is available for this month.")
             st.dataframe(
                 style_monthly_summary(
                     monthly_total_display, sales_status_colours,
@@ -1092,6 +1164,7 @@ if is_ready:
         phone_to_pdate = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Parsed_Date']))
         phone_to_ddisplay = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Day_Display']))
         phone_to_source = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Mapped_Source']))
+        phone_to_agent = dict(zip(phone_lead_meta['Clean_Phone'], phone_lead_meta['Agent']))
 
         # Calculate Total Leads for this tab from the independently filtered lead cohort.
         conv_tab_total_leads = len(df_conv_leads)
@@ -1106,6 +1179,9 @@ if is_ready:
         df_c_filtered['Lead_Parsed_Date'] = df_c_filtered['Clean_Phone'].map(phone_to_pdate)
         df_c_filtered['Lead_Day_Display'] = df_c_filtered['Clean_Phone'].map(phone_to_ddisplay)
         df_c_filtered['Lead_Mapped_Source'] = df_c_filtered['Clean_Phone'].map(phone_to_source)
+        # Agent attribution in the monthly cohort drilldown follows the original lead owner,
+        # while the overall conversion and revenue calculations remain unchanged.
+        df_c_filtered['Lead_Agent'] = df_c_filtered['Clean_Phone'].map(phone_to_agent).fillna('Unassigned')
 
         # The lead cohort filter has already been applied to phone_lead_meta above.
         # Keep only sales whose phone belongs to that selected cohort.
@@ -1221,6 +1297,7 @@ if is_ready:
 
             monthly_month_keys = sorted(monthly_lead_counts.index.tolist(), reverse=True)
             monthly_conv_rows = []
+            monthly_conv_agent_details = {}
             period_leads_total = int(monthly_lead_counts.sum())
             period_converted_total = int(monthly_conv_source["Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
             period_live_total = int(monthly_conv_source.loc[monthly_conv_source["Cleaned_Payment_Status"] == "Live", "Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
@@ -1268,6 +1345,60 @@ if is_ready:
                     "Ranchi Revenue": f"£{month_ranchi_revenue:,.2f} ({(month_ranchi_revenue / month_total_revenue * 100) if month_total_revenue else 0:.1f}%)",
                     "Total Invoiced Revenue": f"£{month_total_revenue:,.2f} ({(month_total_revenue / period_total_revenue * 100) if period_total_revenue else 0:.1f}%)",
                 })
+
+                # Agent breakdown is attributed to the owner of the original lead.
+                # The monthly summary's existing unique-phone and revenue totals are not changed.
+                lead_month_agents = monthly_lead_source[
+                    monthly_lead_source["Summary_Month"] == month_key
+                ].copy()
+                if "Agent" not in lead_month_agents.columns:
+                    lead_month_agents["Agent"] = "Unassigned"
+                lead_month_agents["Agent"] = lead_month_agents["Agent"].fillna("Unassigned").astype(str)
+                agent_lead_counts = lead_month_agents.groupby("Agent").size().to_dict()
+                agent_names = sorted(agent_lead_counts.keys(), key=lambda name: (-agent_lead_counts[name], str(name).casefold()))
+                agent_detail_rows = []
+
+                for agent_name in agent_names:
+                    agent_conversions = month_conversions[
+                        month_conversions["Lead_Agent"].astype(str) == str(agent_name)
+                    ] if not month_conversions.empty else month_conversions
+                    agent_leads = int(agent_lead_counts.get(agent_name, 0))
+                    agent_converted = int(agent_conversions["Clean_Phone"].nunique()) if not agent_conversions.empty else 0
+                    agent_live = int(agent_conversions.loc[agent_conversions["Cleaned_Payment_Status"] == "Live", "Clean_Phone"].nunique()) if not agent_conversions.empty else 0
+                    agent_cancelled = int(agent_conversions.loc[agent_conversions["Cleaned_Payment_Status"] == "Cancelled", "Clean_Phone"].nunique()) if not agent_conversions.empty else 0
+                    agent_pending = int(agent_conversions.loc[agent_conversions["Cleaned_Payment_Status"] == "Pending", "Clean_Phone"].nunique()) if not agent_conversions.empty else 0
+
+                    agent_revenue_records = monthly_revenue_source[
+                        (monthly_revenue_source["Summary_Month"] == month_key)
+                        & (monthly_revenue_source["Lead_Agent"].astype(str) == str(agent_name))
+                    ] if not monthly_revenue_source.empty else monthly_revenue_source
+                    agent_revenue_by_branch = (
+                        agent_revenue_records.groupby("Lead_Mapped_Source")["Live_Amount"].sum().to_dict()
+                        if not agent_revenue_records.empty else {}
+                    )
+                    agent_delhi_revenue = float(agent_revenue_by_branch.get("Delhi", 0.0))
+                    agent_ranchi_revenue = float(agent_revenue_by_branch.get("Ranchi", 0.0))
+                    agent_total_revenue = agent_delhi_revenue + agent_ranchi_revenue
+
+                    agent_detail_rows.append({
+                        "Agent": agent_name,
+                        "Leads": f"{agent_leads:,} (100.0%)" if agent_leads else "0 (0.0%)",
+                        "Sales (Converted)": f"{agent_converted:,} ({(agent_converted / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                        "Live": f"{agent_live:,} ({(agent_live / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                        "Cancelled": f"{agent_cancelled:,} ({(agent_cancelled / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                        "Pending": f"{agent_pending:,} ({(agent_pending / agent_leads * 100) if agent_leads else 0:.1f}%)",
+                        "Delhi Revenue": f"£{agent_delhi_revenue:,.2f} ({(agent_delhi_revenue / agent_total_revenue * 100) if agent_total_revenue else 0:.1f}%)",
+                        "Ranchi Revenue": f"£{agent_ranchi_revenue:,.2f} ({(agent_ranchi_revenue / agent_total_revenue * 100) if agent_total_revenue else 0:.1f}%)",
+                        "Total Invoiced Revenue": f"£{agent_total_revenue:,.2f} ({(agent_total_revenue / month_total_revenue * 100) if month_total_revenue else 0:.1f}%)",
+                    })
+
+                monthly_conv_agent_details[month_key] = pd.DataFrame(
+                    agent_detail_rows,
+                    columns=[
+                        "Agent", "Leads", "Sales (Converted)", "Live", "Cancelled", "Pending",
+                        "Delhi Revenue", "Ranchi Revenue", "Total Invoiced Revenue",
+                    ],
+                )
 
             # Fixed total row: this is rendered separately so interactive sorting of
             # monthly rows can never move it away from the bottom.
@@ -1317,16 +1448,66 @@ if is_ready:
             )
             # Scale only against monthly rows; the TOTAL row is excluded.
             conversion_gradient_scale = monthly_conv_display
-            st.dataframe(
-                style_monthly_summary(
-                    monthly_conv_display, conversion_status_colours,
-                    mode=conversion_gradient_mode, scale_frame=conversion_gradient_scale,
-                ),
-                column_config=conv_month_columns,
-                hide_index=True,
-                use_container_width=True,
-                height=max(110, min(440, 42 + 36 * len(monthly_conv_display))),
-            )
+            st.caption("Expand any month to see the agent-wise lead conversion and revenue performance.")
+            for _, monthly_display_row in monthly_conv_display.iterrows():
+                month_key = pd.Timestamp(monthly_display_row["Month"])
+                month_leads_display = monthly_display_row["Leads"]
+                month_converted_display = monthly_display_row["Sales (Converted)"]
+                month_live_display = monthly_display_row["Live"]
+                month_cancelled_display = monthly_display_row["Cancelled"]
+                month_pending_display = monthly_display_row["Pending"]
+                month_revenue_display = monthly_display_row["Total Invoiced Revenue"].split(" (")[0]
+                expander_label = (
+                    f"{month_key.strftime('%b %Y')}  |  Leads: {month_leads_display}"
+                    f"  |  Converted: {month_converted_display}"
+                    f"  |  Live: {month_live_display}"
+                    f"  |  Cancelled: {month_cancelled_display}"
+                    f"  |  Pending: {month_pending_display}"
+                    f"  |  Revenue: {month_revenue_display}"
+                )
+                with st.expander(expander_label, expanded=False):
+                    month_display_frame = pd.DataFrame([monthly_display_row])
+                    st.dataframe(
+                        style_monthly_summary(
+                            month_display_frame, conversion_status_colours,
+                            mode=conversion_gradient_mode, scale_frame=conversion_gradient_scale,
+                        ),
+                        column_config=conv_month_columns,
+                        hide_index=True,
+                        use_container_width=True,
+                        height=78,
+                    )
+                    st.markdown("**Agent-wise performance**")
+                    agent_conversion_display = monthly_conv_agent_details.get(
+                        month_key,
+                        pd.DataFrame(columns=[
+                            "Agent", "Leads", "Sales (Converted)", "Live", "Cancelled", "Pending",
+                            "Delhi Revenue", "Ranchi Revenue", "Total Invoiced Revenue",
+                        ]),
+                    )
+                    if not agent_conversion_display.empty:
+                        st.dataframe(
+                            style_monthly_summary(
+                                agent_conversion_display, conversion_status_colours,
+                                mode=conversion_gradient_mode, scale_frame=agent_conversion_display,
+                            ),
+                            column_config={
+                                "Agent": st.column_config.TextColumn("Lead Agent"),
+                                "Leads": st.column_config.TextColumn("Leads"),
+                                "Sales (Converted)": st.column_config.TextColumn("Sales (Converted)"),
+                                "Live": st.column_config.TextColumn("Live"),
+                                "Cancelled": st.column_config.TextColumn("Cancelled"),
+                                "Pending": st.column_config.TextColumn("Pending"),
+                                "Delhi Revenue": st.column_config.TextColumn("Delhi Revenue"),
+                                "Ranchi Revenue": st.column_config.TextColumn("Ranchi Revenue"),
+                                "Total Invoiced Revenue": st.column_config.TextColumn("Total Invoiced Revenue"),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            height=max(110, min(380, 42 + 36 * len(agent_conversion_display))),
+                        )
+                    else:
+                        st.info("No agent-level conversion data is available for this month.")
             st.dataframe(
                 style_monthly_summary(
                     monthly_conv_total, conversion_status_colours,
