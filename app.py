@@ -583,7 +583,15 @@ def render_expandable_monthly_summary(
       const tbody = table.tBodies[0];
 
       function resizeFrame() {{
-        const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) + 8;
+        // Measure the full document, including any agent-detail rows just opened.
+        const body = document.body;
+        const root = document.documentElement;
+        const height = Math.ceil(Math.max(
+          body ? body.scrollHeight : 0,
+          body ? body.offsetHeight : 0,
+          root ? root.scrollHeight : 0,
+          root ? root.offsetHeight : 0
+        ) + 12);
         window.parent.postMessage({{isStreamlitMessage:true, type:"streamlit:setFrameHeight", height:height}}, "*");
       }}
 
@@ -598,7 +606,11 @@ def render_expandable_monthly_summary(
           button.setAttribute("aria-expanded", willExpand ? "true" : "false");
           button.textContent = willExpand ? "−" : "+";
           button.title = willExpand ? "Collapse agent-wise performance" : "Expand agent-wise performance";
-          resizeFrame();
+          // Resize after the browser has recalculated the newly visible detail row.
+          requestAnimationFrame(() => {{
+            resizeFrame();
+            setTimeout(resizeFrame, 100);
+          }});
         }});
       }});
 
@@ -645,14 +657,28 @@ def render_expandable_monthly_summary(
 
       if (window.ResizeObserver) {{
         const observer = new ResizeObserver(() => resizeFrame());
-        observer.observe(document.body);
+        if (document.body) observer.observe(document.body);
+        if (table) observer.observe(table);
       }}
-      window.addEventListener("load", resizeFrame);
+      window.addEventListener("load", () => {{
+        resizeFrame();
+        setTimeout(resizeFrame, 120);
+      }});
+      // Recheck once after fonts/styles have settled; this also covers the
+      // initial collapsed table on browsers that delay the first layout pass.
       setTimeout(resizeFrame, 60);
+      setTimeout(resizeFrame, 220);
     }})();
     </script>""")
 
-    components.html("".join(html_parts), height=260, scrolling=False)
+    # Give the collapsed monthly rows enough initial room to render in full.
+    # scrolling=True is a safety net: expanded agent rows remain accessible
+    # even if a browser/Streamlit version does not apply the dynamic frame resize.
+    initial_height = 72 + (len(monthly_frame) * 42)
+    if total_frame is not None and not total_frame.empty:
+        initial_height += 48
+    initial_height = max(300, min(initial_height, 900))
+    components.html("".join(html_parts), height=initial_height, scrolling=True)
 
 def section_header(title, note=None):
     note_html = f'<div class="vr-section-note">{note}</div>' if note else ''
