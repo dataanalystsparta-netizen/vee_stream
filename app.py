@@ -256,6 +256,30 @@ def normalize_phone_string(series):
         .str.replace(r'\D', '', regex=True)
     )
 
+
+def _monthly_cell_gradient(value, base_hex):
+    """Return a white-to-status-colour gradient driven by the cell percentage."""
+    import re
+    match = re.search(r"\(([-+]?\d+(?:\.\d+)?)%\)", str(value))
+    pct = float(match.group(1)) if match else 0.0
+    # Keep small values visible while making high percentages distinctly darker.
+    strength = 0.12 + (max(0.0, min(100.0, pct)) / 100.0) * 0.78
+    base = tuple(int(base_hex[i:i + 2], 16) for i in (1, 3, 5))
+    rgb = tuple(round(255 - (255 - channel) * strength) for channel in base)
+    return f"background-color: rgb({rgb[0]}, {rgb[1]}, {rgb[2]}); color: #172033;"
+
+
+def style_monthly_summary(frame, status_colours, total=False):
+    """Apply percentage-weighted status colours; non-status columns use blue."""
+    styled = frame.style
+    for column in frame.columns:
+        colour = status_colours.get(column, "#3b82f6")
+        styled = styled.applymap(lambda value, c=colour: _monthly_cell_gradient(value, c), subset=[column])
+    styled = styled.set_properties(**{"font-weight": "600"})
+    if total:
+        styled = styled.set_properties(**{"font-weight": "800", "border-top": "2px solid #64748b"})
+    return styled
+
 def section_header(title, note=None):
     note_html = f'<div class="vr-section-note">{note}</div>' if note else ''
     st.markdown(
@@ -792,20 +816,20 @@ if is_ready:
                 "Amount (Invoiced)": st.column_config.TextColumn("Amount (Invoiced)", help="Live invoiced amount and its share of total invoiced revenue in the selected date range."),
             }
 
+            sales_status_colours = {
+                "Accepted (Paid)": "#16a34a",
+                "Cancelled": "#dc2626",
+                "Pending": "#eab308",
+            }
             st.dataframe(
-                monthly_summary_display,
+                style_monthly_summary(monthly_summary_display, sales_status_colours),
                 column_config=sales_month_columns,
                 hide_index=True,
                 use_container_width=True,
                 height=max(110, min(420, 42 + 36 * len(monthly_summary_display))),
             )
             st.dataframe(
-                monthly_total_display.style.set_properties(**{
-                    "background-color": "#fef9c3",
-                    "color": "#713f12",
-                    "font-weight": "800",
-                    "border-top": "2px solid #eab308",
-                }),
+                style_monthly_summary(monthly_total_display, sales_status_colours, total=True),
                 column_config={
                     "Month": st.column_config.TextColumn("Month"),
                     **{k: v for k, v in sales_month_columns.items() if k != "Month"},
@@ -1191,20 +1215,20 @@ if is_ready:
                 "Total Invoiced Revenue": st.column_config.TextColumn("Total Invoiced Revenue", help="Combined Delhi and Ranchi invoiced revenue; percentage of the selected-period total."),
             }
 
+            conversion_status_colours = {
+                "Live": "#16a34a",
+                "Cancelled": "#dc2626",
+                "Pending": "#eab308",
+            }
             st.dataframe(
-                monthly_conv_display,
+                style_monthly_summary(monthly_conv_display, conversion_status_colours),
                 column_config=conv_month_columns,
                 hide_index=True,
                 use_container_width=True,
                 height=max(110, min(440, 42 + 36 * len(monthly_conv_display))),
             )
             st.dataframe(
-                monthly_conv_total.style.set_properties(**{
-                    "background-color": "#fef9c3",
-                    "color": "#713f12",
-                    "font-weight": "800",
-                    "border-top": "2px solid #eab308",
-                }),
+                style_monthly_summary(monthly_conv_total, conversion_status_colours, total=True),
                 column_config={
                     "Month": st.column_config.TextColumn("Month"),
                     **{k: v for k, v in conv_month_columns.items() if k != "Month"},
