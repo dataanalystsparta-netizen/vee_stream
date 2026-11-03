@@ -723,9 +723,8 @@ if is_ready:
         )
 
         if not df_s_filtered.empty:
-            monthly_source = df_s_filtered.copy()
-            # Group by the actual sales date so custom date ranges are represented
-            # against the month in which each sale was recorded.
+            # Use the same eligible rows and status logic as the Sales Verification KPI cards.
+            monthly_source = df_s_filtered[df_s_filtered["Agent"].notna()].copy()
             monthly_source["Summary_Month"] = (
                 pd.to_datetime(monthly_source["Parsed_Date"], errors="coerce")
                 .dt.to_period("M")
@@ -736,7 +735,7 @@ if is_ready:
             monthly_raw = (
                 monthly_source.groupby("Summary_Month", dropna=True)
                 .agg(
-                    Sales=("Cleaned_Payment_Status", "size"),
+                    Sales=("Agent", "count"),
                     Accepted_Paid=("Cleaned_Payment_Status", lambda x: (x == "Live").sum()),
                     Cancelled=("Cleaned_Payment_Status", lambda x: (x == "Cancelled").sum()),
                     Pending=("Cleaned_Payment_Status", lambda x: (x == "Pending").sum()),
@@ -758,7 +757,8 @@ if is_ready:
                 pending_count = int(month_row["Pending"])
 
                 monthly_rows.append({
-                    "Month": pd.Timestamp(month_row["Summary_Month"]).strftime("%b %Y"),
+                    # Keep Month as a real date so clicking the column sorts chronologically.
+                    "Month": pd.Timestamp(month_row["Summary_Month"]),
                     "Sales": f"{month_sales:,}",
                     "Accepted (Paid)": f"{accepted_count:,} ({(accepted_count / month_sales * 100) if month_sales else 0:.1f}%)",
                     "Cancelled": f"{cancelled_count:,} ({(cancelled_count / month_sales * 100) if month_sales else 0:.1f}%)",
@@ -766,44 +766,53 @@ if is_ready:
                     "Amount (Invoiced)": f"£{month_invoiced:,.2f} ({(month_invoiced / summary_invoiced_total * 100) if summary_invoiced_total else 0:.1f}%)",
                 })
 
-            # Period total: status percentages use all filtered sales; invoiced is 100% of the period total.
+            # Keep the period total in a separate, non-sortable one-row table beneath the month rows.
             total_accepted = int(monthly_raw["Accepted_Paid"].sum())
             total_cancelled = int(monthly_raw["Cancelled"].sum())
             total_pending = int(monthly_raw["Pending"].sum())
-            monthly_rows.append({
+            monthly_total_display = pd.DataFrame([{
                 "Month": "TOTAL",
                 "Sales": f"{summary_sales_total:,}",
                 "Accepted (Paid)": f"{total_accepted:,} ({(total_accepted / summary_sales_total * 100) if summary_sales_total else 0:.1f}%)",
                 "Cancelled": f"{total_cancelled:,} ({(total_cancelled / summary_sales_total * 100) if summary_sales_total else 0:.1f}%)",
                 "Pending": f"{total_pending:,} ({(total_pending / summary_sales_total * 100) if summary_sales_total else 0:.1f}%)",
                 "Amount (Invoiced)": f"£{summary_invoiced_total:,.2f} ({100.0 if summary_invoiced_total else 0.0:.1f}%)",
-            })
+            }])
 
             monthly_summary_display = pd.DataFrame(
                 monthly_rows,
                 columns=["Month", "Sales", "Accepted (Paid)", "Cancelled", "Pending", "Amount (Invoiced)"],
             )
-
-            def _style_monthly_total(row):
-                if str(row.get("Month", "")) == "TOTAL":
-                    return [
-                        "background-color:#fef9c3; color:#713f12; font-weight:800; border-top:2px solid #eab308;"
-                    ] * len(row)
-                return [""] * len(row)
+            sales_month_columns = {
+                "Month": st.column_config.DateColumn("Month", format="MMM YYYY"),
+                "Sales": st.column_config.TextColumn("Sales", help="Total eligible sales recorded in the month."),
+                "Accepted (Paid)": st.column_config.TextColumn("Accepted (Paid)", help="Count and percentage of that month's sales."),
+                "Cancelled": st.column_config.TextColumn("Cancelled", help="Count and percentage of that month's sales."),
+                "Pending": st.column_config.TextColumn("Pending", help="Count and percentage of that month's sales."),
+                "Amount (Invoiced)": st.column_config.TextColumn("Amount (Invoiced)", help="Live invoiced amount and its share of total invoiced revenue in the selected date range."),
+            }
 
             st.dataframe(
-                monthly_summary_display.style.apply(_style_monthly_total, axis=1),
+                monthly_summary_display,
+                column_config=sales_month_columns,
+                hide_index=True,
+                use_container_width=True,
+                height=max(110, min(420, 42 + 36 * len(monthly_summary_display))),
+            )
+            st.dataframe(
+                monthly_total_display.style.set_properties(**{
+                    "background-color": "#fef9c3",
+                    "color": "#713f12",
+                    "font-weight": "800",
+                    "border-top": "2px solid #eab308",
+                }),
                 column_config={
                     "Month": st.column_config.TextColumn("Month"),
-                    "Sales": st.column_config.TextColumn("Sales", help="Total sales recorded in the month."),
-                    "Accepted (Paid)": st.column_config.TextColumn("Accepted (Paid)", help="Count and percentage of that month's sales."),
-                    "Cancelled": st.column_config.TextColumn("Cancelled", help="Count and percentage of that month's sales."),
-                    "Pending": st.column_config.TextColumn("Pending", help="Count and percentage of that month's sales."),
-                    "Amount (Invoiced)": st.column_config.TextColumn("Amount (Invoiced)", help="Live invoiced amount and its share of total invoiced revenue in the selected date range."),
+                    **{k: v for k, v in sales_month_columns.items() if k != "Month"},
                 },
                 hide_index=True,
                 use_container_width=True,
-                height=max(160, min(420, 42 + 36 * len(monthly_summary_display))),
+                height=78,
             )
         else:
             st.info("No sales records are available for the selected date range.")
@@ -1058,6 +1067,159 @@ if is_ready:
         cc3.markdown(f'<div class="metric-box"><div class="metric-label">🔴 Total Cancelled</div><div class="metric-number" style="color:#dc2626;">{c_total_cancel_unique:,} <span style="font-size:13px; font-weight:500; color:#475569;">({c_total_cancel_multi:,})</span><br><span style="font-size:11px; font-weight:600; color:#dc2626;">{rate_cancel_unique:.1f}% ({rate_cancel_multi:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc4.markdown(f'<div class="metric-box"><div class="metric-label">🟡 Pending Conversion</div><div class="metric-number" style="color:#ca8a04;">{c_pend_unique:,} <span style="font-size:13px; font-weight:500; color:#475569;">({c_pend_multi:,})</span><br><span style="font-size:11px; font-weight:600; color:#ca8a04;">{rate_pend_unique:.1f}% ({rate_pend_multi:.1f}%)</span></div></div>', unsafe_allow_html=True)
         cc5.markdown(f'<div class="metric-box"><div class="metric-label">💰 Invoiced Revenue</div><div class="metric-number">£{c_revenue:,.2f}</div></div>', unsafe_allow_html=True)
+
+        # --- MONTHLY LEAD CONVERSION SUMMARY (TAB 3) ---
+        section_header(
+            "Monthly Lead Conversion Summary",
+            "Converted / status percentages are measured against each month's lead pool. Delhi and Ranchi revenue show their share of monthly invoiced revenue.",
+        )
+
+        if not df_conv_leads.empty:
+            # Use the filtered lead cohort as the month and branch spine, ensuring months
+            # with leads but no converted sales still appear in the summary.
+            monthly_lead_source = df_conv_leads.copy()
+            monthly_lead_source["Summary_Month"] = (
+                pd.to_datetime(monthly_lead_source["Parsed_Date"], errors="coerce")
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            monthly_lead_source = monthly_lead_source.dropna(subset=["Summary_Month"])
+            monthly_lead_counts = (
+                monthly_lead_source.groupby("Summary_Month")
+                .size()
+                .rename("Leads")
+            )
+
+            monthly_conv_source = df_c_filtered.copy()
+            if not monthly_conv_source.empty:
+                monthly_conv_source["Summary_Month"] = (
+                    pd.to_datetime(monthly_conv_source["Lead_Parsed_Date"], errors="coerce")
+                    .dt.to_period("M")
+                    .dt.to_timestamp()
+                )
+                monthly_conv_source = monthly_conv_source.dropna(subset=["Summary_Month"])
+            else:
+                monthly_conv_source["Summary_Month"] = pd.Series(dtype="datetime64[ns]")
+
+            # The KPI's unique conversion metric counts distinct lead phones. Status
+            # counts below use the same distinct-phone basis, while revenue follows
+            # the KPI's Agent-grouped transaction basis (including repeat transactions).
+            monthly_revenue_source = monthly_conv_source[
+                monthly_conv_source["Agent"].notna()
+            ].copy() if not monthly_conv_source.empty else monthly_conv_source.copy()
+
+            monthly_month_keys = sorted(monthly_lead_counts.index.tolist(), reverse=True)
+            monthly_conv_rows = []
+            period_leads_total = int(monthly_lead_counts.sum())
+            period_converted_total = int(monthly_conv_source["Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
+            period_live_total = int(monthly_conv_source.loc[monthly_conv_source["Cleaned_Payment_Status"] == "Live", "Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
+            period_cancelled_total = int(monthly_conv_source.loc[monthly_conv_source["Cleaned_Payment_Status"] == "Cancelled", "Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
+            period_pending_total = int(monthly_conv_source.loc[monthly_conv_source["Cleaned_Payment_Status"] == "Pending", "Clean_Phone"].nunique()) if not monthly_conv_source.empty else 0
+
+            period_revenue_by_branch = (
+                monthly_revenue_source.groupby("Lead_Mapped_Source")["Live_Amount"].sum().to_dict()
+                if not monthly_revenue_source.empty else {}
+            )
+            period_delhi_revenue = float(period_revenue_by_branch.get("Delhi", 0.0))
+            period_ranchi_revenue = float(period_revenue_by_branch.get("Ranchi", 0.0))
+            period_total_revenue = float(monthly_revenue_source["Live_Amount"].sum()) if not monthly_revenue_source.empty else 0.0
+
+            for month_key in monthly_month_keys:
+                month_leads = int(monthly_lead_counts.get(month_key, 0))
+                month_conversions = monthly_conv_source[
+                    monthly_conv_source["Summary_Month"] == month_key
+                ] if not monthly_conv_source.empty else monthly_conv_source
+
+                month_converted = int(month_conversions["Clean_Phone"].nunique()) if not month_conversions.empty else 0
+                month_live = int(month_conversions.loc[month_conversions["Cleaned_Payment_Status"] == "Live", "Clean_Phone"].nunique()) if not month_conversions.empty else 0
+                month_cancelled = int(month_conversions.loc[month_conversions["Cleaned_Payment_Status"] == "Cancelled", "Clean_Phone"].nunique()) if not month_conversions.empty else 0
+                month_pending = int(month_conversions.loc[month_conversions["Cleaned_Payment_Status"] == "Pending", "Clean_Phone"].nunique()) if not month_conversions.empty else 0
+
+                month_revenue_records = monthly_revenue_source[
+                    monthly_revenue_source["Summary_Month"] == month_key
+                ] if not monthly_revenue_source.empty else monthly_revenue_source
+                month_revenue_by_branch = (
+                    month_revenue_records.groupby("Lead_Mapped_Source")["Live_Amount"].sum().to_dict()
+                    if not month_revenue_records.empty else {}
+                )
+                month_delhi_revenue = float(month_revenue_by_branch.get("Delhi", 0.0))
+                month_ranchi_revenue = float(month_revenue_by_branch.get("Ranchi", 0.0))
+                month_total_revenue = month_delhi_revenue + month_ranchi_revenue
+
+                monthly_conv_rows.append({
+                    "Month": pd.Timestamp(month_key),
+                    "Leads": f"{month_leads:,} (100.0%)" if month_leads else "0 (0.0%)",
+                    "Sales (Converted)": f"{month_converted:,} ({(month_converted / month_leads * 100) if month_leads else 0:.1f}%)",
+                    "Live": f"{month_live:,} ({(month_live / month_leads * 100) if month_leads else 0:.1f}%)",
+                    "Cancelled": f"{month_cancelled:,} ({(month_cancelled / month_leads * 100) if month_leads else 0:.1f}%)",
+                    "Pending": f"{month_pending:,} ({(month_pending / month_leads * 100) if month_leads else 0:.1f}%)",
+                    "Delhi Revenue": f"£{month_delhi_revenue:,.2f} ({(month_delhi_revenue / month_total_revenue * 100) if month_total_revenue else 0:.1f}%)",
+                    "Ranchi Revenue": f"£{month_ranchi_revenue:,.2f} ({(month_ranchi_revenue / month_total_revenue * 100) if month_total_revenue else 0:.1f}%)",
+                    "Total Invoiced Revenue": f"£{month_total_revenue:,.2f} ({(month_total_revenue / period_total_revenue * 100) if period_total_revenue else 0:.1f}%)",
+                })
+
+            # Fixed total row: this is rendered separately so interactive sorting of
+            # monthly rows can never move it away from the bottom.
+            monthly_conv_total = pd.DataFrame([{
+                "Month": "TOTAL",
+                "Leads": f"{period_leads_total:,} (100.0%)" if period_leads_total else "0 (0.0%)",
+                "Sales (Converted)": f"{period_converted_total:,} ({(period_converted_total / period_leads_total * 100) if period_leads_total else 0:.1f}%)",
+                "Live": f"{period_live_total:,} ({(period_live_total / period_leads_total * 100) if period_leads_total else 0:.1f}%)",
+                "Cancelled": f"{period_cancelled_total:,} ({(period_cancelled_total / period_leads_total * 100) if period_leads_total else 0:.1f}%)",
+                "Pending": f"{period_pending_total:,} ({(period_pending_total / period_leads_total * 100) if period_leads_total else 0:.1f}%)",
+                "Delhi Revenue": f"£{period_delhi_revenue:,.2f} ({(period_delhi_revenue / period_total_revenue * 100) if period_total_revenue else 0:.1f}%)",
+                "Ranchi Revenue": f"£{period_ranchi_revenue:,.2f} ({(period_ranchi_revenue / period_total_revenue * 100) if period_total_revenue else 0:.1f}%)",
+                "Total Invoiced Revenue": f"£{period_total_revenue:,.2f} ({100.0 if period_total_revenue else 0.0:.1f}%)",
+            }])
+
+            monthly_conv_display = pd.DataFrame(
+                monthly_conv_rows,
+                columns=[
+                    "Month", "Leads", "Sales (Converted)", "Live", "Cancelled", "Pending",
+                    "Delhi Revenue", "Ranchi Revenue", "Total Invoiced Revenue",
+                ],
+            )
+            conv_month_columns = {
+                "Month": st.column_config.DateColumn("Month", format="MMM YYYY"),
+                "Leads": st.column_config.TextColumn("Leads", help="Lead records in the selected cohort month."),
+                "Sales (Converted)": st.column_config.TextColumn("Sales (Converted)", help="Distinct converted phone numbers; percentage of that month's leads."),
+                "Live": st.column_config.TextColumn("Live", help="Distinct phones with at least one Live transaction; percentage of that month's leads."),
+                "Cancelled": st.column_config.TextColumn("Cancelled", help="Distinct phones with at least one Cancelled transaction; percentage of that month's leads."),
+                "Pending": st.column_config.TextColumn("Pending", help="Distinct phones with at least one Pending transaction; percentage of that month's leads."),
+                "Delhi Revenue": st.column_config.TextColumn("Delhi Revenue", help="Invoiced revenue from Delhi-origin leads; percentage of that month's total invoiced revenue."),
+                "Ranchi Revenue": st.column_config.TextColumn("Ranchi Revenue", help="Invoiced revenue from Ranchi-origin leads; percentage of that month's total invoiced revenue."),
+                "Total Invoiced Revenue": st.column_config.TextColumn("Total Invoiced Revenue", help="Combined Delhi and Ranchi invoiced revenue; percentage of the selected-period total."),
+            }
+
+            st.dataframe(
+                monthly_conv_display,
+                column_config=conv_month_columns,
+                hide_index=True,
+                use_container_width=True,
+                height=max(110, min(440, 42 + 36 * len(monthly_conv_display))),
+            )
+            st.dataframe(
+                monthly_conv_total.style.set_properties(**{
+                    "background-color": "#fef9c3",
+                    "color": "#713f12",
+                    "font-weight": "800",
+                    "border-top": "2px solid #eab308",
+                }),
+                column_config={
+                    "Month": st.column_config.TextColumn("Month"),
+                    **{k: v for k, v in conv_month_columns.items() if k != "Month"},
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=78,
+            )
+            st.caption(
+                "Conversion counts are unique-phone metrics, consistent with the primary conversion KPI. "
+                "Live / Cancelled / Pending percentages are measured against Leads. Revenue is transaction-based; "
+                "Delhi and Ranchi percentages are each branch's share of monthly revenue."
+            )
+        else:
+            st.info("No leads are available for the selected conversion cohort date range.")
 
         st.markdown("<br>", unsafe_allow_html=True)
 
