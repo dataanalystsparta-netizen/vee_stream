@@ -1,5 +1,7 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
+from html import escape as html_escape
 import gspread
 from google.oauth2.service_account import Credentials
 import plotly.express as px
@@ -350,6 +352,307 @@ def style_monthly_summary(frame, status_colours, mode="Based on %", scale_frame=
             subset=[column],
         )
     return styled.set_properties(**{"font-weight": "600"})
+
+
+def _monthly_html_display_value(value, column):
+    """Format the date field consistently with the existing monthly summary tables."""
+    if column == "Month" and isinstance(value, (pd.Timestamp, datetime, date)):
+        try:
+            return pd.Timestamp(value).strftime("%b %Y")
+        except Exception:
+            pass
+    if pd.isna(value):
+        return "-"
+    return str(value)
+
+
+def _monthly_html_sort_value(value, column):
+    """Provide a stable numeric sort key for the custom HTML summary table."""
+    if column == "Month":
+        try:
+            return str(int(pd.Timestamp(value).timestamp() * 1000))
+        except Exception:
+            return str(value).casefold()
+    number = _monthly_raw_number(value)
+    if number is not None:
+        return str(number)
+    return str(value).casefold()
+
+
+def _monthly_html_cell_style(value, column, status_colours, mode, scale_frame):
+    """Return the same value/% gradient styling used by the Streamlit tables."""
+    if column in ("Month", "Agent") or column not in scale_frame.columns:
+        return ""
+
+    import numpy as np
+
+    base_colour = status_colours.get(column, "#3b82f6")
+    values_for_scale = []
+    if mode == "Based on values":
+        values_for_scale = [
+            _monthly_raw_number(item) for item in scale_frame[column].tolist()
+        ]
+        values_for_scale = [
+            item for item in values_for_scale
+            if item is not None and np.isfinite(item)
+        ]
+    value_min = min(values_for_scale) if values_for_scale else None
+    value_max = max(values_for_scale) if values_for_scale else None
+    return _monthly_cell_gradient(
+        value, base_colour, mode=mode, value_min=value_min, value_max=value_max
+    )
+
+
+def render_expandable_monthly_summary(
+    monthly_frame,
+    total_frame,
+    detail_frames,
+    status_colours,
+    gradient_mode,
+    table_id,
+    *,
+    detail_first_column_label="Agent",
+):
+    """Render one compact month table with inline +/- agent-detail rows."""
+    if monthly_frame.empty:
+        st.info("No monthly records are available for this summary.")
+        return
+
+    main_columns = list(monthly_frame.columns)
+    detail_columns = list(next(iter(detail_frames.values())).columns) if detail_frames else []
+    if not detail_columns:
+        detail_columns = ["Agent"] + [col for col in main_columns if col != "Month"]
+
+    # Normalize lookup keys once so month row expansion is independent of Timestamp type.
+    normalized_details = {}
+    for key, frame in (detail_frames or {}).items():
+        try:
+            month_key = pd.Timestamp(key).strftime("%Y-%m")
+        except Exception:
+            month_key = str(key)
+        normalized_details[month_key] = frame
+
+    def render_data_cell(row, column, scale_frame, *, total=False, first_column=False):
+        value = row.get(column, "")
+        display_value = _monthly_html_display_value(value, column)
+        cell_classes = []
+        if first_column:
+            cell_classes.append("name-cell")
+        if total:
+            cell_classes.append("total-cell")
+        class_attr = f' class="{" ".join(cell_classes)}"' if cell_classes else ""
+
+        style = ""
+        if total:
+            style = "background-color:#ffffff;color:#172033;font-weight:800;"
+        else:
+            gradient_style = _monthly_html_cell_style(
+                value, column, status_colours, gradient_mode, scale_frame
+            )
+            if gradient_style:
+                style = gradient_style
+
+        style_attr = f' style="{style}"' if style else ""
+        sort_value = _monthly_html_sort_value(value, column)
+        sort_attr = f' data-sort="{html_escape(sort_value, quote=True)}"'
+        return (
+            f'<td{class_attr}{style_attr}{sort_attr}>'
+            f'{html_escape(display_value)}</td>'
+        )
+
+    html_parts = [f"""<div class="vee-monthly-table-wrap">
+      <table id="{html_escape(table_id, quote=True)}" class="vee-monthly-table">
+        <thead><tr>
+          <th class="expand-head" aria-label="Expand month details"></th>"""]
+
+    for column in main_columns:
+        label = "Month" if column == "Month" else str(column)
+        html_parts.append(
+            f'<th data-sort-index="{len(html_parts)}">{html_escape(label)}</th>'
+        )
+    html_parts.append('</tr></thead><tbody>')
+
+    for row_index, (_, month_row) in enumerate(monthly_frame.iterrows()):
+        month_value = month_row.get("Month", "")
+        try:
+            month_key = pd.Timestamp(month_value).strftime("%Y-%m")
+            month_label = pd.Timestamp(month_value).strftime("%b %Y")
+        except Exception:
+            month_key = str(month_value)
+            month_label = str(month_value)
+        group_id = f"{table_id}-group-{row_index}"
+        detail_frame = normalized_details.get(month_key, pd.DataFrame(columns=detail_columns))
+        detail_frame = detail_frame if detail_frame is not None else pd.DataFrame(columns=detail_columns)
+
+        html_parts.append(
+            f'<tr class="monthly-parent-row" data-group="{html_escape(group_id, quote=True)}">'
+            f'<td class="expand-cell"><button type="button" class="vee-expand-button" '
+            f'data-group="{html_escape(group_id, quote=True)}" aria-expanded="false" '
+            f'title="Expand agent-wise performance" aria-label="Expand {html_escape(month_label, quote=True)}">+</button></td>'
+        )
+        for col_index, column in enumerate(main_columns):
+            html_parts.append(
+                render_data_cell(
+                    month_row, column, monthly_frame,
+                    first_column=(col_index == 0),
+                )
+            )
+        html_parts.append('</tr>')
+
+        # Detail rows sit directly below their month row and are hidden until + is clicked.
+        html_parts.append(
+            f'<tr class="monthly-detail-row" data-parent="{html_escape(group_id, quote=True)}">'
+            f'<td colspan="{len(main_columns) + 1}"><div class="vee-agent-detail-panel">'
+            f'<div class="vee-agent-detail-heading">Agent-wise performance <span>{html_escape(month_label)}</span></div>'
+        )
+        if detail_frame.empty:
+            html_parts.append('<div class="vee-agent-empty">No agent-level details are available for this month.</div>')
+        else:
+            html_parts.append('<div class="vee-agent-table-scroll"><table class="vee-agent-detail-table"><thead><tr>')
+            for col_index, column in enumerate(detail_columns):
+                heading = detail_first_column_label if column == "Agent" else str(column)
+                html_parts.append(f'<th>{html_escape(heading)}</th>')
+            html_parts.append('</tr></thead><tbody>')
+            for _, detail_row in detail_frame.iterrows():
+                html_parts.append('<tr>')
+                for col_index, column in enumerate(detail_columns):
+                    html_parts.append(
+                        render_data_cell(
+                            detail_row, column, detail_frame,
+                            first_column=(col_index == 0),
+                        )
+                    )
+                html_parts.append('</tr>')
+            html_parts.append('</tbody></table></div>')
+        html_parts.append('</div></td></tr>')
+
+    # TOTAL remains at the bottom and is deliberately plain white with no gradient fill.
+    if total_frame is not None and not total_frame.empty:
+        for _, total_row in total_frame.iterrows():
+            html_parts.append('<tr class="monthly-total-row"><td class="expand-cell"></td>')
+            for col_index, column in enumerate(main_columns):
+                html_parts.append(
+                    render_data_cell(
+                        total_row, column, monthly_frame,
+                        total=True, first_column=(col_index == 0),
+                    )
+                )
+            html_parts.append('</tr>')
+
+    html_parts.append('</tbody></table></div>')
+
+    # Inline CSS and JavaScript follow the same + / - row design as the supplied Sparta example.
+    html_parts.append(r"""<style>
+      html, body { margin:0; padding:0; background:transparent; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; color:#172033; }
+      .vee-monthly-table-wrap { width:100%; overflow-x:auto; border:1px solid #e2e8f0; border-radius:12px; background:#fff; box-shadow:0 4px 16px rgba(15,23,42,.035); }
+      table.vee-monthly-table { width:100%; min-width:850px; border-collapse:separate; border-spacing:0; font-size:12px; font-variant-numeric:tabular-nums; }
+      .vee-monthly-table th { padding:11px 12px; background:#f8fafc; color:#475569; text-align:center; white-space:nowrap; font-size:10px; font-weight:800; letter-spacing:.035em; border-bottom:1px solid #dbe3ed; }
+      .vee-monthly-table th[data-sort-index] { cursor:pointer; user-select:none; }
+      .vee-monthly-table th[data-sort-index]:hover { background:#eef2f7; }
+      .vee-monthly-table th[data-order="asc"]:after { content:"  ▲"; color:#64748b; font-size:9px; }
+      .vee-monthly-table th[data-order="desc"]:after { content:"  ▼"; color:#64748b; font-size:9px; }
+      .vee-monthly-table th.expand-head, .vee-monthly-table td.expand-cell { width:42px; min-width:42px; max-width:42px; padding:6px; text-align:center; }
+      .vee-monthly-table td { padding:10px 12px; text-align:center; white-space:nowrap; color:#172033; border-bottom:1px solid #edf1f6; }
+      .vee-monthly-table td.name-cell { text-align:left; font-weight:750; color:#1e293b; }
+      .vee-monthly-table tr.monthly-parent-row:hover td { filter:brightness(.985); }
+      .vee-expand-button { width:25px; height:25px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid #cbd5e1; border-radius:7px; color:#334155; background:#fff; font-size:16px; line-height:1; font-weight:800; cursor:pointer; box-shadow:0 1px 2px rgba(15,23,42,.035); transition:background .12s ease,transform .12s ease,border-color .12s ease; }
+      .vee-expand-button:hover { background:#eff6ff; border-color:#94a3b8; transform:translateY(-1px); }
+      .vee-expand-button[aria-expanded="true"] { background:#eff6ff; border-color:#93c5fd; color:#1d4ed8; }
+      .monthly-detail-row { display:none; }
+      .monthly-detail-row.shown { display:table-row; }
+      .monthly-detail-row > td { padding:0 !important; background:#f8fafc; border-bottom:1px solid #dbe3ed; }
+      .vee-agent-detail-panel { padding:13px 18px 16px 58px; background:linear-gradient(180deg,#f8fafc 0%,#ffffff 100%); }
+      .vee-agent-detail-heading { margin:0 0 9px; color:#334155; font-size:10px; font-weight:850; letter-spacing:.075em; text-transform:uppercase; }
+      .vee-agent-detail-heading span { margin-left:7px; color:#94a3b8; font-weight:700; letter-spacing:0; text-transform:none; }
+      .vee-agent-table-scroll { width:100%; overflow-x:auto; border:1px solid #e2e8f0; border-radius:9px; background:#fff; }
+      table.vee-agent-detail-table { width:100%; min-width:780px; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums; }
+      .vee-agent-detail-table th { padding:9px 10px; background:#eef2f7; color:#475569; border-bottom:1px solid #dbe3ed; font-size:9px; font-weight:850; text-align:center; white-space:nowrap; }
+      .vee-agent-detail-table td { padding:8px 10px; text-align:center; white-space:nowrap; color:#334155; border-bottom:1px solid #edf1f6; }
+      .vee-agent-detail-table td.name-cell { text-align:left; font-weight:750; }
+      .vee-agent-detail-table tbody tr:last-child td { border-bottom:0; }
+      .vee-agent-empty { padding:12px; border:1px dashed #cbd5e1; border-radius:8px; color:#64748b; background:#fff; font-size:11px; }
+      .monthly-total-row td { padding-top:12px; padding-bottom:12px; font-weight:850 !important; background:#fff !important; color:#172033 !important; border-top:2px solid #64748b; border-bottom:0; }
+      .monthly-total-row td.name-cell { letter-spacing:.025em; }
+      @media (max-width:700px) { .vee-agent-detail-panel { padding:11px 9px; } .vee-monthly-table th,.vee-monthly-table td { padding-left:8px; padding-right:8px; } }
+    </style>""")
+
+    html_parts.append(f"""<script>
+    (function() {{
+      const table = document.getElementById("{table_id}");
+      if (!table) return;
+      const tbody = table.tBodies[0];
+
+      function resizeFrame() {{
+        const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) + 8;
+        window.parent.postMessage({{isStreamlitMessage:true, type:"streamlit:setFrameHeight", height:height}}, "*");
+      }}
+
+      table.querySelectorAll(".vee-expand-button").forEach(button => {{
+        button.addEventListener("click", () => {{
+          const groupId = button.getAttribute("data-group");
+          const detail = Array.from(tbody.querySelectorAll("tr.monthly-detail-row"))
+            .find(row => row.getAttribute("data-parent") === groupId);
+          if (!detail) return;
+          const willExpand = !detail.classList.contains("shown");
+          detail.classList.toggle("shown", willExpand);
+          button.setAttribute("aria-expanded", willExpand ? "true" : "false");
+          button.textContent = willExpand ? "−" : "+";
+          button.title = willExpand ? "Collapse agent-wise performance" : "Expand agent-wise performance";
+          resizeFrame();
+        }});
+      }});
+
+      function sortCell(cell) {{
+        if (!cell) return "";
+        return cell.getAttribute("data-sort") || cell.textContent.trim();
+      }}
+      function compare(a, b, order) {{
+        const aText = String(a).replace(/,/g, "").trim();
+        const bText = String(b).replace(/,/g, "").trim();
+        const aNum = Number(aText);
+        const bNum = Number(bText);
+        if (aText !== "" && bText !== "" && Number.isFinite(aNum) && Number.isFinite(bNum)) {{
+          return order === "asc" ? aNum - bNum : bNum - aNum;
+        }}
+        return order === "asc" ? String(a).localeCompare(String(b)) : String(b).localeCompare(String(a));
+      }}
+
+      const headers = Array.from(table.querySelectorAll("thead th[data-sort-index]"));
+      headers.forEach((header, headerPosition) => {{
+        header.addEventListener("click", () => {{
+          const order = header.getAttribute("data-order") === "asc" ? "desc" : "asc";
+          headers.forEach(item => item.removeAttribute("data-order"));
+          header.setAttribute("data-order", order);
+          const columnIndex = headerPosition + 1;
+          const parents = Array.from(tbody.querySelectorAll("tr.monthly-parent-row"));
+          parents.sort((rowA, rowB) => compare(
+            sortCell(rowA.children[columnIndex]),
+            sortCell(rowB.children[columnIndex]),
+            order
+          ));
+          parents.forEach(parent => {{
+            tbody.appendChild(parent);
+            const groupId = parent.getAttribute("data-group");
+            const detail = Array.from(tbody.querySelectorAll("tr.monthly-detail-row"))
+              .find(row => row.getAttribute("data-parent") === groupId);
+            if (detail) tbody.appendChild(detail);
+          }});
+          const total = tbody.querySelector("tr.monthly-total-row");
+          if (total) tbody.appendChild(total);
+          resizeFrame();
+        }});
+      }});
+
+      if (window.ResizeObserver) {{
+        const observer = new ResizeObserver(() => resizeFrame());
+        observer.observe(document.body);
+      }}
+      window.addEventListener("load", resizeFrame);
+      setTimeout(resizeFrame, 60);
+    }})();
+    </script>""")
+
+    components.html("".join(html_parts), height=260, scrolling=False)
 
 def section_header(title, note=None):
     note_html = f'<div class="vr-section-note">{note}</div>' if note else ''
@@ -900,102 +1203,55 @@ if is_ready:
                 key="sales_monthly_gradient_mode",
                 help="Choose whether each cell's colour intensity follows its count / amount or its displayed percentage.",
             )
-            # Scale only against monthly rows; the TOTAL row is excluded.
-            sales_gradient_scale = monthly_summary_display
-            st.caption("Expand any month to see the agent-wise performance for that month.")
-            for _, monthly_display_row in monthly_summary_display.iterrows():
-                month_key = pd.Timestamp(monthly_display_row["Month"])
-                month_rows_source = monthly_source[monthly_source["Summary_Month"] == month_key].copy()
-                month_sales = int(monthly_display_row["Sales"].replace(",", ""))
-                month_accepted = monthly_display_row["Accepted (Paid)"]
-                month_cancelled_display = monthly_display_row["Cancelled"]
-                month_pending_display = monthly_display_row["Pending"]
-                month_invoiced_display = monthly_display_row["Amount (Invoiced)"].split(" (")[0]
-                expander_label = (
-                    f"{month_key.strftime('%b %Y')}  |  Sales: {month_sales:,}"
-                    f"  |  Accepted: {month_accepted}"
-                    f"  |  Cancelled: {month_cancelled_display}"
-                    f"  |  Pending: {month_pending_display}"
-                    f"  |  Invoiced: {month_invoiced_display}"
+            # Build the agent breakdowns once, then place them as hidden child rows
+            # directly beneath each month in the same summary table.
+            monthly_sales_agent_details = {}
+            for _, summary_month_row in monthly_summary_display.iterrows():
+                month_key = pd.Timestamp(summary_month_row["Month"])
+                month_rows_source = monthly_source[
+                    monthly_source["Summary_Month"] == month_key
+                ].copy()
+                agent_month_raw = (
+                    month_rows_source.groupby("Agent", dropna=False)
+                    .agg(
+                        Sales=("Agent", "count"),
+                        Accepted_Paid=("Cleaned_Payment_Status", lambda x: (x == "Live").sum()),
+                        Cancelled=("Cleaned_Payment_Status", lambda x: (x == "Cancelled").sum()),
+                        Pending=("Cleaned_Payment_Status", lambda x: (x == "Pending").sum()),
+                        Invoiced=("Live_Amount", "sum"),
+                    )
+                    .reset_index()
+                    .sort_values(["Sales", "Agent"], ascending=[False, True])
                 )
-                with st.expander(expander_label, expanded=False):
-                    month_display_frame = pd.DataFrame([monthly_display_row])
-                    st.dataframe(
-                        style_monthly_summary(
-                            month_display_frame, sales_status_colours,
-                            mode=sales_gradient_mode, scale_frame=sales_gradient_scale,
-                        ),
-                        column_config=sales_month_columns,
-                        hide_index=True,
-                        use_container_width=True,
-                        height=78,
-                    )
+                agent_month_rows = []
+                for _, agent_row in agent_month_raw.iterrows():
+                    agent_name = str(agent_row["Agent"]) if pd.notna(agent_row["Agent"]) else "Unassigned"
+                    agent_sales = int(agent_row["Sales"])
+                    agent_accepted = int(agent_row["Accepted_Paid"])
+                    agent_cancelled = int(agent_row["Cancelled"])
+                    agent_pending = int(agent_row["Pending"])
+                    agent_invoiced = float(agent_row["Invoiced"])
+                    agent_month_rows.append({
+                        "Agent": agent_name,
+                        "Sales": f"{agent_sales:,}",
+                        "Accepted (Paid)": f"{agent_accepted:,} ({(agent_accepted / agent_sales * 100) if agent_sales else 0:.1f}%)",
+                        "Cancelled": f"{agent_cancelled:,} ({(agent_cancelled / agent_sales * 100) if agent_sales else 0:.1f}%)",
+                        "Pending": f"{agent_pending:,} ({(agent_pending / agent_sales * 100) if agent_sales else 0:.1f}%)",
+                        "Amount (Invoiced)": f"£{agent_invoiced:,.2f} ({(agent_invoiced / summary_invoiced_total * 100) if summary_invoiced_total else 0:.1f}%)",
+                    })
+                monthly_sales_agent_details[month_key.strftime("%Y-%m")] = pd.DataFrame(
+                    agent_month_rows,
+                    columns=["Agent", "Sales", "Accepted (Paid)", "Cancelled", "Pending", "Amount (Invoiced)"],
+                )
 
-                    agent_month_raw = (
-                        month_rows_source.groupby("Agent", dropna=False)
-                        .agg(
-                            Sales=("Agent", "count"),
-                            Accepted_Paid=("Cleaned_Payment_Status", lambda x: (x == "Live").sum()),
-                            Cancelled=("Cleaned_Payment_Status", lambda x: (x == "Cancelled").sum()),
-                            Pending=("Cleaned_Payment_Status", lambda x: (x == "Pending").sum()),
-                            Invoiced=("Live_Amount", "sum"),
-                        )
-                        .reset_index()
-                        .sort_values(["Sales", "Agent"], ascending=[False, True])
-                    )
-                    agent_month_rows = []
-                    for _, agent_row in agent_month_raw.iterrows():
-                        agent_name = str(agent_row["Agent"]) if pd.notna(agent_row["Agent"]) else "Unassigned"
-                        agent_sales = int(agent_row["Sales"])
-                        agent_accepted = int(agent_row["Accepted_Paid"])
-                        agent_cancelled = int(agent_row["Cancelled"])
-                        agent_pending = int(agent_row["Pending"])
-                        agent_invoiced = float(agent_row["Invoiced"])
-                        agent_month_rows.append({
-                            "Agent": agent_name,
-                            "Sales": f"{agent_sales:,}",
-                            "Accepted (Paid)": f"{agent_accepted:,} ({(agent_accepted / agent_sales * 100) if agent_sales else 0:.1f}%)",
-                            "Cancelled": f"{agent_cancelled:,} ({(agent_cancelled / agent_sales * 100) if agent_sales else 0:.1f}%)",
-                            "Pending": f"{agent_pending:,} ({(agent_pending / agent_sales * 100) if agent_sales else 0:.1f}%)",
-                            "Amount (Invoiced)": f"£{agent_invoiced:,.2f} ({(agent_invoiced / summary_invoiced_total * 100) if summary_invoiced_total else 0:.1f}%)",
-                        })
-                    agent_month_display = pd.DataFrame(
-                        agent_month_rows,
-                        columns=["Agent", "Sales", "Accepted (Paid)", "Cancelled", "Pending", "Amount (Invoiced)"],
-                    )
-                    st.markdown("**Agent-wise performance**")
-                    if not agent_month_display.empty:
-                        st.dataframe(
-                            style_monthly_summary(
-                                agent_month_display, sales_status_colours,
-                                mode=sales_gradient_mode, scale_frame=agent_month_display,
-                            ),
-                            column_config={
-                                "Agent": st.column_config.TextColumn("Agent"),
-                                "Sales": st.column_config.TextColumn("Sales"),
-                                "Accepted (Paid)": st.column_config.TextColumn("Accepted (Paid)"),
-                                "Cancelled": st.column_config.TextColumn("Cancelled"),
-                                "Pending": st.column_config.TextColumn("Pending"),
-                                "Amount (Invoiced)": st.column_config.TextColumn("Amount (Invoiced)"),
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                            height=max(110, min(360, 42 + 36 * len(agent_month_display))),
-                        )
-                    else:
-                        st.info("No agent-level sales data is available for this month.")
-            st.dataframe(
-                style_monthly_summary(
-                    monthly_total_display, sales_status_colours,
-                    mode=sales_gradient_mode, scale_frame=sales_gradient_scale, total=True,
-                ),
-                column_config={
-                    "Month": st.column_config.TextColumn("Month"),
-                    **{k: v for k, v in sales_month_columns.items() if k != "Month"},
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=78,
+            st.caption("Use the + button beside a month to reveal agent-wise performance inline.")
+            render_expandable_monthly_summary(
+                monthly_summary_display,
+                monthly_total_display,
+                monthly_sales_agent_details,
+                sales_status_colours,
+                sales_gradient_mode,
+                "vee-sales-monthly-expandable",
             )
         else:
             st.info("No sales records are available for the selected date range.")
@@ -1446,80 +1702,15 @@ if is_ready:
                 key="conversion_monthly_gradient_mode",
                 help="Choose whether each cell's colour intensity follows its count / revenue or its displayed percentage.",
             )
-            # Scale only against monthly rows; the TOTAL row is excluded.
-            conversion_gradient_scale = monthly_conv_display
-            st.caption("Expand any month to see the agent-wise lead conversion and revenue performance.")
-            for _, monthly_display_row in monthly_conv_display.iterrows():
-                month_key = pd.Timestamp(monthly_display_row["Month"])
-                month_leads_display = monthly_display_row["Leads"]
-                month_converted_display = monthly_display_row["Sales (Converted)"]
-                month_live_display = monthly_display_row["Live"]
-                month_cancelled_display = monthly_display_row["Cancelled"]
-                month_pending_display = monthly_display_row["Pending"]
-                month_revenue_display = monthly_display_row["Total Invoiced Revenue"].split(" (")[0]
-                expander_label = (
-                    f"{month_key.strftime('%b %Y')}  |  Leads: {month_leads_display}"
-                    f"  |  Converted: {month_converted_display}"
-                    f"  |  Live: {month_live_display}"
-                    f"  |  Cancelled: {month_cancelled_display}"
-                    f"  |  Pending: {month_pending_display}"
-                    f"  |  Revenue: {month_revenue_display}"
-                )
-                with st.expander(expander_label, expanded=False):
-                    month_display_frame = pd.DataFrame([monthly_display_row])
-                    st.dataframe(
-                        style_monthly_summary(
-                            month_display_frame, conversion_status_colours,
-                            mode=conversion_gradient_mode, scale_frame=conversion_gradient_scale,
-                        ),
-                        column_config=conv_month_columns,
-                        hide_index=True,
-                        use_container_width=True,
-                        height=78,
-                    )
-                    st.markdown("**Agent-wise performance**")
-                    agent_conversion_display = monthly_conv_agent_details.get(
-                        month_key,
-                        pd.DataFrame(columns=[
-                            "Agent", "Leads", "Sales (Converted)", "Live", "Cancelled", "Pending",
-                            "Delhi Revenue", "Ranchi Revenue", "Total Invoiced Revenue",
-                        ]),
-                    )
-                    if not agent_conversion_display.empty:
-                        st.dataframe(
-                            style_monthly_summary(
-                                agent_conversion_display, conversion_status_colours,
-                                mode=conversion_gradient_mode, scale_frame=agent_conversion_display,
-                            ),
-                            column_config={
-                                "Agent": st.column_config.TextColumn("Lead Agent"),
-                                "Leads": st.column_config.TextColumn("Leads"),
-                                "Sales (Converted)": st.column_config.TextColumn("Sales (Converted)"),
-                                "Live": st.column_config.TextColumn("Live"),
-                                "Cancelled": st.column_config.TextColumn("Cancelled"),
-                                "Pending": st.column_config.TextColumn("Pending"),
-                                "Delhi Revenue": st.column_config.TextColumn("Delhi Revenue"),
-                                "Ranchi Revenue": st.column_config.TextColumn("Ranchi Revenue"),
-                                "Total Invoiced Revenue": st.column_config.TextColumn("Total Invoiced Revenue"),
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                            height=max(110, min(380, 42 + 36 * len(agent_conversion_display))),
-                        )
-                    else:
-                        st.info("No agent-level conversion data is available for this month.")
-            st.dataframe(
-                style_monthly_summary(
-                    monthly_conv_total, conversion_status_colours,
-                    mode=conversion_gradient_mode, scale_frame=conversion_gradient_scale, total=True,
-                ),
-                column_config={
-                    "Month": st.column_config.TextColumn("Month"),
-                    **{k: v for k, v in conv_month_columns.items() if k != "Month"},
-                },
-                hide_index=True,
-                use_container_width=True,
-                height=78,
+            st.caption("Use the + button beside a month to reveal lead-agent conversion and revenue performance inline.")
+            render_expandable_monthly_summary(
+                monthly_conv_display,
+                monthly_conv_total,
+                monthly_conv_agent_details,
+                conversion_status_colours,
+                conversion_gradient_mode,
+                "vee-conversion-monthly-expandable",
+                detail_first_column_label="Lead Agent",
             )
             st.caption(
                 "Conversion counts are unique-phone metrics, consistent with the primary conversion KPI. "
