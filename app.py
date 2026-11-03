@@ -270,11 +270,19 @@ def _monthly_cell_gradient(value, base_hex):
 
 
 def style_monthly_summary(frame, status_colours, total=False):
-    """Apply percentage-weighted status colours; non-status columns use blue."""
+    """Apply percentage-weighted status colours without deprecated Styler.applymap()."""
     styled = frame.style
     for column in frame.columns:
         colour = status_colours.get(column, "#3b82f6")
-        styled = styled.applymap(lambda value, c=colour: _monthly_cell_gradient(value, c), subset=[column])
+        # Styler.apply() is supported across pandas versions, including versions
+        # where Styler.applymap() has been removed.
+        styled = styled.apply(
+            lambda values, c=colour: [
+                _monthly_cell_gradient(value, c) for value in values
+            ],
+            axis=0,
+            subset=[column],
+        )
     styled = styled.set_properties(**{"font-weight": "600"})
     if total:
         styled = styled.set_properties(**{"font-weight": "800", "border-top": "2px solid #64748b"})
